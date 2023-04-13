@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 16
-VisualStudioVersion = 16.0.29025.244
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.33516.290
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "usbip_vhci", "driver\vhci\usbip_vhci.vcxproj", "{F35A874E-E790-44B5-9C14-749C8854A0C4}"
 EndProject
@@ -18,6 +18,10 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "usbip_vhci_ude", "driver\vhci_ude\usbip_vhci_ude.vcxproj", "{27D5F152-C29D-4C5C-A65C-78ABEE57BAEA}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "attacher", "userspace\src\attacher\attacher.vcxproj", "{C059278A-86F7-4263-8B71-9BF15949A994}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "CS", "CS", "{B7CA7967-F702-4A80-89C1-E6680846C7F3}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "driver", "driver", "{B1997DD3-43FC-4048-8369-DAE3D9ED6FB5}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -110,6 +114,16 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{F35A874E-E790-44B5-9C14-749C8854A0C4} = {B1997DD3-43FC-4048-8369-DAE3D9ED6FB5}
+		{2C173853-88C0-4334-85BF-0B46CFD5A007} = {B7CA7967-F702-4A80-89C1-E6680846C7F3}
+		{36CEE68D-D6CF-4413-978C-794488F44555} = {B7CA7967-F702-4A80-89C1-E6680846C7F3}
+		{0C5C92AA-37F0-4521-86EA-76F32B43E7B4} = {B7CA7967-F702-4A80-89C1-E6680846C7F3}
+		{08230AFF-8015-437B-9DF1-AF8D0112DF59} = {B1997DD3-43FC-4048-8369-DAE3D9ED6FB5}
+		{27AB4325-4980-4634-9818-AE6BD61DE532} = {B1997DD3-43FC-4048-8369-DAE3D9ED6FB5}
+		{27D5F152-C29D-4C5C-A65C-78ABEE57BAEA} = {B1997DD3-43FC-4048-8369-DAE3D9ED6FB5}
+		{C059278A-86F7-4263-8B71-9BF15949A994} = {B7CA7967-F702-4A80-89C1-E6680846C7F3}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {FE601D51-AE24-467D-AE6A-0B2CA0E729A0}
