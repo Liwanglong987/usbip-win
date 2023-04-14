@@ -33,45 +33,18 @@ static int
 export_device(devno_t devno, SOCKET sockfd)
 {
 	HANDLE socketHandle = (HANDLE)sockfd;
-	DeviceContainer* existDeviceContainer = NULL;
-	BOOL isContainer = IsContains(devno, existDeviceContainer);
-	HDEVSocketContainer* pHDEVSocketContainer = NULL;
-	if(isContainer == FALSE || existDeviceContainer == NULL) {
-		int ret = CreateNewContainer(socketHandle, devno, pHDEVSocketContainer);
-		if(ret != 0) {
-			closesocket(sockfd);
-			dbg("failed to create new socketContainer by error: %d", ret);
-			return ret;
-		}
-		DeviceContainer* newDeviceContainer = (DeviceContainer*)malloc(sizeof(DeviceContainer));
-		if(newDeviceContainer == NULL) {
-			closesocket(sockfd);
-			free(pHDEVSocketContainer);
-			dbg("failed to malloc before CreateThreadpoolWork");
-			return ERR_GENERAL;
-		}
-		newDeviceContainer->devno = devno;
-		newDeviceContainer->FirstSocketHDEVContainer = pHDEVSocketContainer;
-		newDeviceContainer->Next = NULL;
-		AddDeviceToArray(&newDeviceContainer);
+	pvoid_t* sendPVoid = (pvoid_t*)malloc(sizeof(pvoid_t));
+	if(sendPVoid == NULL) {
+		dbg("fail to malloc to pvoid_t");
+		return ERR_GENERAL;
 	}
-	else
-	{
-		HANDLE existHDEVHandle = existDeviceContainer->FirstSocketHDEVContainer->HDEVHandle;
-		int ret = CreateContainerByOpenedHDEV(socketHandle, existHDEVHandle, pHDEVSocketContainer);
-		if(ret != 0) {
-			dbg("failed to create thread pool work: error: %dx", ret);
-			return ret;
-		}
-
-		AddToArray(existDeviceContainer, pHDEVSocketContainer);
-	}
-
+	sendPVoid->devno = devno;
+	sendPVoid->socketHandle = socketHandle;	 
 	//Create produce Request Thread
-	PTP_WORK producerWork = CreateThreadpoolWork(ThreadForProduceRequest, pHDEVSocketContainer, NULL);
+	PTP_WORK producerWork = CreateThreadpoolWork(ThreadForProduceRequest, sendPVoid, NULL);
 	if(producerWork == NULL) {
 		dbg("failed to create thread pool work: error: %lx", GetLastError());
-		free(pHDEVSocketContainer);
+		free(sendPVoid);
 		return ERR_GENERAL;
 	}
 	SubmitThreadpoolWork(producerWork);

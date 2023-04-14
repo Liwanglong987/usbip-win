@@ -1,4 +1,5 @@
-#include <winsock2.h>
+﻿#include <winsock2.h>
+#include <signal.h>
 #include "usbip_setupdi.h"
 #include "usbipdThreadpool.h"
 #include "usbipd_stub.h"
@@ -8,83 +9,46 @@
 static DeviceContainer* DeviceContainerArray = NULL;
 static Dictionary* dictionary = NULL;
 
-void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP_WORK work) {
-	HDEVSocketContainer* currentHDEVSocketContainer = (HDEVSocketContainer*)ctx;
-	devbuf_t* rbuff = currentHDEVSocketContainer->socketBuffer;
-	devbuf_t* wbuff = currentHDEVSocketContainer->HDEVbuffer;
-	int res;
-	while(TRUE)
-	{
-		if(!rbuff->in_reading) {
-			if((res = read_dev(rbuff, wbuff->swap_req)) < 0)
-				return;
-			if(res == 0)
-				return TRUE;
-		}
-		if(rbuff->step_reading == 2) {
-			Enqueue(rbuff->hdev, wbuff->hdev);
-		}
-		if(isFirst(rbuff->hdev, wbuff->hdev)) {
-			write_devbuf(wbuff, rbuff);
-		}
-	}
-}
-
-BOOL IsContains(devno_t devno, DeviceContainer* existDeviceContainer) {
-	DeviceContainer* current = DeviceContainerArray;
-	for(;;) {
-		if(current == NULL) {
-			return FALSE;
-		}
-		if(current->devno == devno)
-		{
-			existDeviceContainer = current;
-			return TRUE;
-		}
-		current = current->Next;
-	}
-}
-
-void AddDeviceToArray(DeviceContainer* newDeviceContainer) {
-	if(DeviceContainerArray == NULL) {
-		DeviceContainerArray = newDeviceContainer;
-		return;
-	}
-	DeviceContainer* current = DeviceContainerArray;
-	for(;;) {
-		if(current->Next == NULL) {
-			current->Next = newDeviceContainer;
-			return;
-		}
-		current = current->Next;
-	}
-}
-
-void AddToArray(DeviceContainer* existDeviceContainer, HDEVSocketContainer* newHDEVSocketContainer) {
-	HDEVSocketContainer* current = existDeviceContainer->FirstSocketHDEVContainer;
-	for(;;) {
-		if(current == NULL) {
-			current = newHDEVSocketContainer;
-		}
-		current = current->Next;
-	}
-}
-
-int CreateNewContainer(HANDLE socketHandle, devno_t devno, HDEVSocketContainer* pHDEVSocketContainer) {
-	HANDLE hdevHandle = open_stub_dev(devno);
-	if(hdevHandle == INVALID_HANDLE_VALUE) {
-		dbg("cannot open devno: %hhu", devno);
-		return ERR_ACCESS;
-	}
-	int ret = CreateContainerByOpenedHDEV(socketHandle, hdevHandle, pHDEVSocketContainer);
-	if(ret != 0) {
-		CloseHandle(hdevHandle);
-	}
-	return 0;
-}
-
-int CreateContainerByOpenedHDEV(HANDLE socketHandle, HANDLE hdevHandle, HDEVSocketContainer* pHDEVSocketContainer)
+void signalhandlerPool(int signal)
 {
+	interrupted = TRUE;
+	DeviceContainer* current = DeviceContainerArray;
+	for(;;) {
+		if(current == NULL) {
+			break;
+		}
+		HDEVSocketContainer* currentContainer = current->FirstSocketHDEVContainer;
+		for(;;) {
+			if(currentContainer == NULL) {
+				break;
+			}
+			SetEvent(currentContainer->hEvent);
+			currentContainer = currentContainer->Next;
+		}
+		current = current->Next;
+	}
+}
+
+void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP_WORK work) {
+	dbg("enter");
+	pvoid_t* pvoid_data = (pvoid_t*)ctx;
+	devno_t devno = pvoid_data->devno;
+	HANDLE socketHandle = pvoid_data->socketHandle;
+
+	HANDLE hdevHandle;
+	DeviceContainer* existDeviceContainer = NULL;
+	BOOL isContainer = IsContains(devno, &existDeviceContainer);
+	if(isContainer) {
+		hdevHandle = existDeviceContainer->FirstSocketHDEVContainer->HDEVHandle;
+	}
+	else
+	{
+		hdevHandle = open_stub_dev(devno);
+		if(hdevHandle == INVALID_HANDLE_VALUE) {
+			dbg("cannot open devno: %hhu", devno);
+			return ERR_ACCESS;
+		}
+	}
 	HANDLE hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 	if(hEvent == NULL) {
 		dbg("failed to create event");
@@ -99,29 +63,130 @@ int CreateContainerByOpenedHDEV(HANDLE socketHandle, HANDLE hdevHandle, HDEVSock
 	}
 
 	devbuf_t bufferOfhdev;
-	if(!init_devbuf(&bufferOfhdev, "hdev", TRUE, TRUE, hdevHandle, hEvent)) {
+	if(!init_devbuf(&bufferOfhdev, "stub", FALSE, FALSE, hdevHandle, hEvent)) {
 		CloseHandle(hEvent);
-		free(&buffOfSocket);
+		cleanup_devbuf(&buffOfSocket);
 		dbg("failed to initialize %s buffer", "socket");
 		return ERR_GENERAL;
 	}
-	HDEVSocketContainer* newHDEVSocketContainer = (HDEVSocketContainer*)malloc(sizeof(HDEVSocketContainer));
-	if(newHDEVSocketContainer == NULL) {
+
+	buffOfSocket.peer = &bufferOfhdev;
+	bufferOfhdev.peer = &buffOfSocket;
+
+	HDEVSocketContainer* pHDEVSocketContainer = (HDEVSocketContainer*)malloc(sizeof(HDEVSocketContainer));
+	if(pHDEVSocketContainer == NULL) {
 		CloseHandle(hEvent);
-		free(&buffOfSocket);
-		free(&bufferOfhdev);
+		cleanup_devbuf(&buffOfSocket);
+		cleanup_devbuf(&bufferOfhdev);
 		dbg("fail to malloc to HDEVSocketContainer");
 		return ERR_GENERAL;
 	}
-	newHDEVSocketContainer->HDEVbuffer = &bufferOfhdev;
-	newHDEVSocketContainer->HDEVHandle = hdevHandle;
-	newHDEVSocketContainer->socketBuffer = &buffOfSocket;
-	newHDEVSocketContainer->socketHandle = socketHandle;
-	newHDEVSocketContainer->Next = NULL;
-	pHDEVSocketContainer = newHDEVSocketContainer;
+	pHDEVSocketContainer->HDEVHandle = hdevHandle;
+	pHDEVSocketContainer->socketHandle = socketHandle;
+	pHDEVSocketContainer->hEvent = hEvent;
+	pHDEVSocketContainer->Next = NULL;
+	int ret = AddToArray(devno, pHDEVSocketContainer);
+	if(ret != 0) {
+		return;
+	}
+	while(TRUE)
+	{
+		dbg("1");
+			BOOL isFirstOne = isFirst(bufferOfhdev.hdev, buffOfSocket.hdev);
+		if(!buffOfSocket.in_reading) {
+			int ret = read_dev(&buffOfSocket, bufferOfhdev.swap_req);
+			if(ret < 0)
+				break;
+		}
+		else if(buffOfSocket.step_reading != 0) {
+			if(isFirstOne == TRUE) {
+				dbg("2");
+
+				if(!write_devbuf(&bufferOfhdev, &buffOfSocket)) {
+					break;
+				}
+			}
+			else
+			{
+				dbg("3");
+				Enqueue(bufferOfhdev.hdev, buffOfSocket.hdev);
+			}
+		}
+		if(!bufferOfhdev.in_reading && isFirstOne == TRUE) {
+			dbg("4");
+			int ret = read_dev(&bufferOfhdev, buffOfSocket.swap_req);
+			if(ret < 0) {
+				break;
+			}
+		}
+		if(!write_devbuf(&buffOfSocket, &bufferOfhdev)) {
+			dbg("5");
+			break;
+		}
+		dbg("6");
+		if(buffOfSocket.invalid || bufferOfhdev.invalid)
+			break;
+		dbg("7");
+		if(buffOfSocket.in_reading && bufferOfhdev.in_reading &&
+			(buffOfSocket.in_writing || BUFREMAIN_C(&bufferOfhdev) == 0) &&
+			(bufferOfhdev.in_writing || BUFREMAIN_C(&buffOfSocket) == 0)) {
+			WaitForSingleObjectEx(hEvent, INFINITE, TRUE);
+			ResetEvent(hEvent);
+		}
+	}
 }
 
-Dictionary* InitNewDictionary(HANDLE hdevHandle, Queue* newQueue) {
+BOOL IsContains(devno_t devno, DeviceContainer** existDeviceContainer) {
+	DeviceContainer* current = DeviceContainerArray;
+	for(;;) {
+		if(current == NULL) {
+			return FALSE;
+		}
+		if(current->devno == devno)
+		{
+			*existDeviceContainer = current;
+			return TRUE;
+		}
+		current = current->Next;
+	}
+}
+
+int AddToArray(devno_t devno, HDEVSocketContainer* newHDEVSocketContainer) {
+
+	DeviceContainer** current = &DeviceContainerArray;
+	for(;;) {
+		if(*current == NULL) {
+			DeviceContainer* newDeviceContainer = (DeviceContainer*)malloc(sizeof(DeviceContainer));
+			if(newDeviceContainer == NULL) {
+				dbg("fail to malloc");
+				return ERR_GENERAL;
+			}
+			newDeviceContainer->devno = devno;
+			newDeviceContainer->FirstSocketHDEVContainer = newHDEVSocketContainer;
+			newDeviceContainer->Next = NULL;
+			*current = newDeviceContainer;
+			return 0;
+		}
+		else if((*current)->devno == devno)
+		{
+			HDEVSocketContainer** currentContainer = &((*current)->FirstSocketHDEVContainer);
+			for(;;) {
+				if(*current == NULL) {
+					*current = newHDEVSocketContainer;
+					return;
+				}
+				currentContainer = &((*currentContainer)->Next);
+			}
+		}
+		else
+		{
+			current = &((*current)->Next);
+		}
+	}
+
+}
+
+static Dictionary* InitNewDictionary(HANDLE hdevHandle, Queue* newQueue) {
 	Dictionary* newDictionary = (Dictionary*)malloc(sizeof(Dictionary));
 	if(newDictionary == NULL) {
 		dbg("fail to malloc memory");
@@ -133,66 +198,53 @@ Dictionary* InitNewDictionary(HANDLE hdevHandle, Queue* newQueue) {
 	return newDictionary;
 }
 
-void Enqueue(HANDLE hdevHandle, HANDLE socketHandle) {
+int Enqueue(HANDLE hdevHandle, HANDLE socketHandle) {
 	Queue* pNewQueue = (Queue*)malloc(sizeof(Queue));
 	if(pNewQueue == NULL) {
 		dbg("fail to malloc memory");
-		return;
+		return ERR_GENERAL;
 	}
 	pNewQueue->socketHandle = socketHandle;
 	pNewQueue->Next = NULL;
 
-	if(dictionary == NULL) {
-		Dictionary* newDictionary = InitNewDictionary(hdevHandle, pNewQueue);
-		if(newDictionary == NULL)
-		{
-			free(pNewQueue);
-			return;
-		}
-		dictionary = newDictionary;
-		return;
-	}
-	Dictionary* current = dictionary;
+	Dictionary** current = &dictionary;
 	for(;;) {
-		if(current->hdevHandle == hdevHandle) {
-			if(current->queue == NULL) {
-				current->queue = &pNewQueue;
-				return;
-			}
-			Queue* currentQueue = current->queue;
-			for(;;) {
-				if(currentQueue->Next == NULL) {
-					currentQueue->Next = &pNewQueue;
-					return;
-				}
-				currentQueue = currentQueue->Next;
-			}
-		}
-		if(current->Next == NULL) {
+		if((*current) == NULL) {
 			Dictionary* newDictionary = InitNewDictionary(hdevHandle, pNewQueue);
 			if(newDictionary == NULL)
 			{
 				free(pNewQueue);
-				return;
+				return ERR_GENERAL;
 			}
-			current->Next = newDictionary;
-			return;
+			*current = newDictionary;
+			return 0;
 		}
-		current = current->Next;
+		if((*current)->hdevHandle == hdevHandle) {
+			Queue** currentQueue = &((*current)->queue);
+			for(;;) {
+				if(*currentQueue == NULL) {
+					*currentQueue = pNewQueue;
+					return 0;
+				}
+				currentQueue = &((*currentQueue)->Next);
+			}
+		}
+		current = &((*current)->Next);
 	}
+	return 0;
 }
 
 BOOL isFirst(HANDLE hdevHandle, HANDLE socketHandle) {
-	if(dictionary == NULL) {
-		return FALSE;
-	}
-	Dictionary* current = dictionary;
+	Dictionary** current = &dictionary;
 	for(;;) {
-		if(current->hdevHandle == hdevHandle) {
-			if(current->queue == NULL) {
+		if((*current) == NULL) {
+			return FALSE;
+		}
+		if((*current)->hdevHandle == hdevHandle) {
+			if((*current)->queue == NULL) {
 				return FALSE;
 			}
-			if(current->queue->socketHandle == hdevHandle) {
+			if((*current)->queue->socketHandle == hdevHandle) {
 				return TRUE;
 			}
 			else
@@ -200,10 +252,7 @@ BOOL isFirst(HANDLE hdevHandle, HANDLE socketHandle) {
 				return FALSE;
 			}
 		}
-		if(current->Next == NULL) {
-			return FALSE;
-		}
-		current = current->Next;
+		current = &((*current)->Next);
 	}
 }
 
@@ -212,3 +261,4 @@ void Dequeue(Dictionary* currentDicKeyValuePair) {
 	currentDicKeyValuePair->queue = currentDicKeyValuePair->queue->Next;
 	free(currentQueue);
 }
+

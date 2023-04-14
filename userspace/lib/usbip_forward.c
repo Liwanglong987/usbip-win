@@ -367,7 +367,7 @@ init_devbuf(devbuf_t* buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE
 	return TRUE;
 }
 
-static void
+void
 cleanup_devbuf(devbuf_t* buff)
 {
 	free(buff->bufp);
@@ -465,7 +465,7 @@ write_completion(DWORD errcode, DWORD nwrite, LPOVERLAPPED lpOverlapped)
 	rbuff->offc += nwrite;
 }
 
-static BOOL
+BOOL
 write_devbuf(devbuf_t* wbuff, devbuf_t* rbuff)
 {
 	if(rbuff->bufp != rbuff->bufc && BUFREMAIN_C(rbuff) == 0) {
@@ -485,8 +485,7 @@ write_devbuf(devbuf_t* wbuff, devbuf_t* rbuff)
 	return TRUE;
 }
 
-static int
-read_dev(devbuf_t* rbuff, BOOL swap_req_write)
+int read_dev(devbuf_t* rbuff, BOOL swap_req_write)
 {
 	struct usbip_header* hdr;
 	unsigned long	xfer_len, iso_len, len_data;
@@ -549,8 +548,6 @@ read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff)
 	}
 	return write_devbuf(wbuff, rbuff);
 }
-
-static volatile BOOL	interrupted;
 
 static void
 signalhandler(int signal)

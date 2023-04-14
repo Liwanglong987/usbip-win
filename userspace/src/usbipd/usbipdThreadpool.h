@@ -6,11 +6,15 @@
 #ifndef _USBIP_THREADPOOL_H_
 #define _USBIP_THREADPOOL_H_
 
+typedef struct {
+	devno_t devno;
+	HANDLE socketHandle;
+} pvoid_t;
+
 typedef struct HDEVSocket {
 	HANDLE HDEVHandle;
-	devbuf_t* HDEVbuffer;
 	HANDLE socketHandle;
-	devbuf_t* socketBuffer;
+	HANDLE hEvent;
 	struct HDEVSocket* Next;
 } HDEVSocketContainer;
 
@@ -32,24 +36,17 @@ typedef struct dictionaryOfQueue {
 	struct dictionaryOfQueue* Next;
 } Dictionary;
 
-extern void Enqueue(HANDLE hdevHandle, HANDLE socketHandle);
+extern int Enqueue(HANDLE hdevHandle, HANDLE socketHandle);
 
 extern BOOL isFirst(HANDLE hdevHandle, HANDLE socketHandle);
 
-extern void Dequeue(HANDLE hdevHandle);
+extern void Dequeue(Dictionary* currentDicKeyValuePair);
 
-extern BOOL IsContains(devno_t devno, DeviceContainer* existDeviceContainer);
+extern BOOL IsContains(devno_t devno, DeviceContainer** existDeviceContainer);
 
-extern void AddToArray(DeviceContainer* existDeviceContainer, HDEVSocketContainer* newHDEVSocketContainer);
 
-extern void AddDeviceToArray(DeviceContainer* newDeviceContainer);
-
-extern int CreateNewContainer(HANDLE socketHandle, devno_t devno, HDEVSocketContainer* pHDEVSocketContainer);
-
-extern int CreateContainerByOpenedHDEV(HANDLE socketHandle, HANDLE hdevHandle, HDEVSocketContainer* pHDEVSocketContainer);
 
 extern void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP_WORK work);
 
-extern void CALLBACK ThreadToCustomerRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP_WORK work);
-
+extern void signalhandlerPool(int signal);
 #endif

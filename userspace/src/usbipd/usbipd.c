@@ -16,6 +16,7 @@
 #include "usbip_network.h"
 #include "getopt.h"
 #include "usbip_windows.h"
+#include "usbipdThreadpool.h"
 
 #undef  PROGNAME
 #define PROGNAME "usbipd"
@@ -106,7 +107,7 @@ do_standalone_mode(void)
 		cleanup_socket();
 		return 2;
 	}
-
+	signal(SIGINT, signalhandlerPool);
 	n_sockfds = setup_fds(sockfds, &fds);
 	while (TRUE) {
 		struct timeval	timeout;
