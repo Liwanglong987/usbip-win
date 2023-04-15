@@ -17,7 +17,7 @@ void signalhandlerPool(int signal)
 		if(current == NULL) {
 			break;
 		}
-		HDEVSocketContainer* currentContainer = current->FirstSocketHDEVContainer;
+		SocketContainer* currentContainer = current->FirstSocketContainer;
 		for(;;) {
 			if(currentContainer == NULL) {
 				break;
@@ -29,114 +29,8 @@ void signalhandlerPool(int signal)
 	}
 }
 
-void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP_WORK work) {
-	dbg("enter");
-	pvoid_t* pvoid_data = (pvoid_t*)ctx;
-	devno_t devno = pvoid_data->devno;
-	HANDLE socketHandle = pvoid_data->socketHandle;
 
-	HANDLE hdevHandle;
-	DeviceContainer* existDeviceContainer = NULL;
-	BOOL isContainer = IsContains(devno, &existDeviceContainer);
-	if(isContainer) {
-		hdevHandle = existDeviceContainer->FirstSocketHDEVContainer->HDEVHandle;
-	}
-	else
-	{
-		hdevHandle = open_stub_dev(devno);
-		if(hdevHandle == INVALID_HANDLE_VALUE) {
-			dbg("cannot open devno: %hhu", devno);
-			return ERR_ACCESS;
-		}
-	}
-	HANDLE hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-	if(hEvent == NULL) {
-		dbg("failed to create event");
-		return ERR_GENERAL;
-	}
-
-	devbuf_t buffOfSocket;
-	if(!init_devbuf(&buffOfSocket, "socket", TRUE, TRUE, socketHandle, hEvent)) {
-		CloseHandle(hEvent);
-		dbg("failed to initialize %s buffer", "socket");
-		return ERR_NETWORK;
-	}
-
-	devbuf_t bufferOfhdev;
-	if(!init_devbuf(&bufferOfhdev, "stub", FALSE, FALSE, hdevHandle, hEvent)) {
-		CloseHandle(hEvent);
-		cleanup_devbuf(&buffOfSocket);
-		dbg("failed to initialize %s buffer", "socket");
-		return ERR_GENERAL;
-	}
-
-	buffOfSocket.peer = &bufferOfhdev;
-	bufferOfhdev.peer = &buffOfSocket;
-
-	HDEVSocketContainer* pHDEVSocketContainer = (HDEVSocketContainer*)malloc(sizeof(HDEVSocketContainer));
-	if(pHDEVSocketContainer == NULL) {
-		CloseHandle(hEvent);
-		cleanup_devbuf(&buffOfSocket);
-		cleanup_devbuf(&bufferOfhdev);
-		dbg("fail to malloc to HDEVSocketContainer");
-		return ERR_GENERAL;
-	}
-	pHDEVSocketContainer->HDEVHandle = hdevHandle;
-	pHDEVSocketContainer->socketHandle = socketHandle;
-	pHDEVSocketContainer->hEvent = hEvent;
-	pHDEVSocketContainer->Next = NULL;
-	int ret = AddToArray(devno, pHDEVSocketContainer);
-	if(ret != 0) {
-		return;
-	}
-	while(TRUE)
-	{
-		dbg("1");
-			BOOL isFirstOne = isFirst(bufferOfhdev.hdev, buffOfSocket.hdev);
-		if(!buffOfSocket.in_reading) {
-			int ret = read_dev(&buffOfSocket, bufferOfhdev.swap_req);
-			if(ret < 0)
-				break;
-		}
-		else if(buffOfSocket.step_reading != 0) {
-			if(isFirstOne == TRUE) {
-				dbg("2");
-
-				if(!write_devbuf(&bufferOfhdev, &buffOfSocket)) {
-					break;
-				}
-			}
-			else
-			{
-				dbg("3");
-				Enqueue(bufferOfhdev.hdev, buffOfSocket.hdev);
-			}
-		}
-		if(!bufferOfhdev.in_reading && isFirstOne == TRUE) {
-			dbg("4");
-			int ret = read_dev(&bufferOfhdev, buffOfSocket.swap_req);
-			if(ret < 0) {
-				break;
-			}
-		}
-		if(!write_devbuf(&buffOfSocket, &bufferOfhdev)) {
-			dbg("5");
-			break;
-		}
-		dbg("6");
-		if(buffOfSocket.invalid || bufferOfhdev.invalid)
-			break;
-		dbg("7");
-		if(buffOfSocket.in_reading && bufferOfhdev.in_reading &&
-			(buffOfSocket.in_writing || BUFREMAIN_C(&bufferOfhdev) == 0) &&
-			(bufferOfhdev.in_writing || BUFREMAIN_C(&buffOfSocket) == 0)) {
-			WaitForSingleObjectEx(hEvent, INFINITE, TRUE);
-			ResetEvent(hEvent);
-		}
-	}
-}
-
-BOOL IsContains(devno_t devno, DeviceContainer** existDeviceContainer) {
+BOOL DeciveIsExist(devno_t devno, DeviceContainer** existDeviceContainer) {
 	DeviceContainer* current = DeviceContainerArray;
 	for(;;) {
 		if(current == NULL) {
@@ -151,7 +45,11 @@ BOOL IsContains(devno_t devno, DeviceContainer** existDeviceContainer) {
 	}
 }
 
-int AddToArray(devno_t devno, HDEVSocketContainer* newHDEVSocketContainer) {
+int AddToArray(devno_t devno, HANDLE HDEVHandle, HANDLE socketHandle, HANDLE hEvent) {
+	SocketContainer* socketContainer = (SocketContainer*)malloc(sizeof(SocketContainer));
+	socketContainer->socketHandle = socketHandle;
+	socketContainer->hEvent = hEvent;
+	socketContainer->Next = NULL;
 
 	DeviceContainer** current = &DeviceContainerArray;
 	for(;;) {
@@ -162,20 +60,21 @@ int AddToArray(devno_t devno, HDEVSocketContainer* newHDEVSocketContainer) {
 				return ERR_GENERAL;
 			}
 			newDeviceContainer->devno = devno;
-			newDeviceContainer->FirstSocketHDEVContainer = newHDEVSocketContainer;
+			newDeviceContainer->HDEVHandle = HDEVHandle;
+			newDeviceContainer->FirstSocketContainer = socketContainer;
 			newDeviceContainer->Next = NULL;
 			*current = newDeviceContainer;
 			return 0;
 		}
 		else if((*current)->devno == devno)
 		{
-			HDEVSocketContainer** currentContainer = &((*current)->FirstSocketHDEVContainer);
+			SocketContainer** currentSocketContainer = &((*current)->FirstSocketContainer);
 			for(;;) {
-				if(*current == NULL) {
-					*current = newHDEVSocketContainer;
-					return;
+				if(*currentSocketContainer == NULL) {
+					*currentSocketContainer = socketContainer;
+					return 0;
 				}
-				currentContainer = &((*currentContainer)->Next);
+				currentSocketContainer = &((*currentSocketContainer)->Next);
 			}
 		}
 		else
@@ -186,40 +85,34 @@ int AddToArray(devno_t devno, HDEVSocketContainer* newHDEVSocketContainer) {
 
 }
 
-static Dictionary* InitNewDictionary(HANDLE hdevHandle, Queue* newQueue) {
-	Dictionary* newDictionary = (Dictionary*)malloc(sizeof(Dictionary));
-	if(newDictionary == NULL) {
-		dbg("fail to malloc memory");
-		return NULL;
-	}
-	newDictionary->hdevHandle = hdevHandle;
-	newDictionary->queue = newQueue;
-	newDictionary->Next = NULL;
-	return newDictionary;
-}
-
-int Enqueue(HANDLE hdevHandle, HANDLE socketHandle) {
+int Enqueue(devno_t devno, BOOL fromDevice, devbuf_t* socketBuf, devbuf_t* hdevBuf) {
 	Queue* pNewQueue = (Queue*)malloc(sizeof(Queue));
 	if(pNewQueue == NULL) {
 		dbg("fail to malloc memory");
 		return ERR_GENERAL;
 	}
-	pNewQueue->socketHandle = socketHandle;
+	pNewQueue->fromDevice = fromDevice;
+	pNewQueue->hdevBuf = hdevBuf;
+	pNewQueue->socketBuf = socketBuf;
 	pNewQueue->Next = NULL;
 
 	Dictionary** current = &dictionary;
 	for(;;) {
 		if((*current) == NULL) {
-			Dictionary* newDictionary = InitNewDictionary(hdevHandle, pNewQueue);
-			if(newDictionary == NULL)
-			{
+			Dictionary* newDictionary = (Dictionary*)malloc(sizeof(Dictionary));
+			if(newDictionary == NULL) {
 				free(pNewQueue);
+				dbg("fail to malloc memory");
 				return ERR_GENERAL;
 			}
+			newDictionary->devno = devno;
+			newDictionary->queue = pNewQueue;
+			newDictionary->Next = NULL;
+
 			*current = newDictionary;
 			return 0;
 		}
-		if((*current)->hdevHandle == hdevHandle) {
+		if((*current)->devno == devno) {
 			Queue** currentQueue = &((*current)->queue);
 			for(;;) {
 				if(*currentQueue == NULL) {
@@ -234,31 +127,180 @@ int Enqueue(HANDLE hdevHandle, HANDLE socketHandle) {
 	return 0;
 }
 
-BOOL isFirst(HANDLE hdevHandle, HANDLE socketHandle) {
-	Dictionary** current = &dictionary;
+Queue* Dequeue(devno_t devno) {
+	Dictionary** dic = &dictionary;
 	for(;;) {
-		if((*current) == NULL) {
-			return FALSE;
+		if(*dic == NULL) {
+			return NULL;
 		}
-		if((*current)->hdevHandle == hdevHandle) {
-			if((*current)->queue == NULL) {
-				return FALSE;
+		else if((*dic)->devno == devno)
+		{
+			Queue* ret = (*dic)->queue;
+			if(ret != NULL) {
+				(*dic)->queue = ret->Next;
 			}
-			if((*current)->queue->socketHandle == hdevHandle) {
-				return TRUE;
-			}
-			else
-			{
-				return FALSE;
-			}
+			return ret;
 		}
-		current = &((*current)->Next);
+		else
+		{
+			dic = &((*dic)->Next);
+		}
 	}
 }
 
-void Dequeue(Dictionary* currentDicKeyValuePair) {
-	Queue* currentQueue = currentDicKeyValuePair->queue;
-	currentDicKeyValuePair->queue = currentDicKeyValuePair->queue->Next;
-	free(currentQueue);
+void CALLBACK ThreadForConsumerRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP_WORK work)
+{
+	devno_t* pDevno = (devno_t*)ctx;
+	devno_t devno = * pDevno;
+	int lastStep_reading = 0;
+	BOOL isEqual = FALSE;
+	Queue* firstQueue = Dequeue(devno);
+	while(!interrupted)
+	{
+		if(firstQueue == NULL) {
+			firstQueue = Dequeue(devno);
+			continue;
+		}
+		else
+		{
+			devbuf_t* socketBuf = firstQueue->socketBuf;
+			devbuf_t* hdevBuf = firstQueue->hdevBuf;
+
+			if(firstQueue->fromDevice == FALSE) {
+				BOOL cIsEqualTop = hdevBuf->bufc != hdevBuf->bufp;
+				if(isEqual != cIsEqualTop) {
+					if(cIsEqualTop) {
+						free(firstQueue);
+						firstQueue = NULL;
+					}
+					isEqual = cIsEqualTop;
+				}
+			}
+			else
+			{
+				if(lastStep_reading != hdevBuf->step_reading) {
+					if(lastStep_reading == 2 && hdevBuf->step_reading == 0) {
+						free(firstQueue);
+						firstQueue = NULL;
+					}
+					lastStep_reading = hdevBuf->step_reading;
+				}
+			}
+
+			if(!write_devbuf(hdevBuf, socketBuf)) {
+				break;
+			}
+			if(!hdevBuf->in_reading && firstQueue->fromDevice == TRUE) {
+				int ret = read_dev(hdevBuf, socketBuf->swap_req);
+				if(ret < 0) {
+					dbg("read data from device fail once");
+					break;
+				}
+			}
+
+		}
+	}
 }
+
+void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP_WORK work)
+{
+	dbg("enter");
+	pvoid_t* pvoid_data = (pvoid_t*)ctx;
+	devno_t devno = pvoid_data->devno;
+	HANDLE socketHandle = pvoid_data->socketHandle;
+
+	HANDLE hdevHandle;
+	DeviceContainer* existDeviceContainer;
+
+
+	BOOL isContainer = DeciveIsExist(devno, &existDeviceContainer);
+	if(isContainer) {
+		hdevHandle = existDeviceContainer->HDEVHandle;
+	}
+	else
+	{
+		hdevHandle = open_stub_dev(devno);
+		if(hdevHandle == INVALID_HANDLE_VALUE) {
+			dbg("cannot open devno: %hhu", devno);
+			return;
+		}
+	}
+	HANDLE hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+	if(hEvent == NULL) {
+		dbg("failed to create event");
+		return;
+	}
+
+	devbuf_t buffOfSocket;
+	if(!init_devbuf(&buffOfSocket, "socket", TRUE, TRUE, socketHandle, hEvent)) {
+		CloseHandle(hEvent);
+		dbg("failed to initialize %s buffer", "socket");
+		return;
+	}
+
+	devbuf_t bufferOfhdev;
+	if(!init_devbuf(&bufferOfhdev, "stub", FALSE, FALSE, hdevHandle, hEvent)) {
+		CloseHandle(hEvent);
+		cleanup_devbuf(&buffOfSocket);
+		dbg("failed to initialize %s buffer", "socket");
+		return;
+	}
+
+	buffOfSocket.peer = &bufferOfhdev;
+	bufferOfhdev.peer = &buffOfSocket;
+
+	int ret = AddToArray(devno, hdevHandle, socketHandle, hEvent);
+	if(ret != 0) {
+		CloseHandle(hEvent);
+		cleanup_devbuf(&buffOfSocket);
+		cleanup_devbuf(&bufferOfhdev);
+		return;
+	}
+	int sign = 1;
+	while(TRUE)
+	{
+		dbg("1");
+		BOOL isFirstOne = isFirst(bufferOfhdev.hdev, buffOfSocket.hdev);
+		if(!buffOfSocket.in_reading) {
+			int ret = read_dev(&buffOfSocket, bufferOfhdev.swap_req);
+			if(ret < 0)
+				break;
+		}
+		if(buffOfSocket.step_reading != 0 && isFirstOne == FALSE) {
+			dbg("3");
+			Enqueue(devno, TRUE, bufferOfhdev.hdev, buffOfSocket.hdev);
+		}
+
+		if(isFirstOne == TRUE) {
+			dbg("2");
+			if(!write_devbuf(&bufferOfhdev, &buffOfSocket)) {
+				break;
+			}
+			if(!bufferOfhdev.in_reading) {
+				dbg("4");
+				int ret = read_dev(&bufferOfhdev, buffOfSocket.swap_req);
+				if(ret < 0) {
+					break;
+				}
+			}
+		}
+		if(!write_devbuf(&buffOfSocket, &bufferOfhdev)) {
+			dbg("5");
+			break;
+		}
+
+		dbg("6");
+		if(buffOfSocket.invalid || bufferOfhdev.invalid)
+			break;
+
+		dbg("7");
+		if(buffOfSocket.in_reading && bufferOfhdev.in_reading &&
+			(buffOfSocket.in_writing || BUFREMAIN_C(&bufferOfhdev) == 0) &&
+			(bufferOfhdev.in_writing || BUFREMAIN_C(&buffOfSocket) == 0)) {
+			WaitForSingleObjectEx(hEvent, INFINITE, TRUE);
+			ResetEvent(hEvent);
+		}
+	}
+}
+
 

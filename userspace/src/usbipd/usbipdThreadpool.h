@@ -11,42 +11,46 @@ typedef struct {
 	HANDLE socketHandle;
 } pvoid_t;
 
-typedef struct HDEVSocket {
-	HANDLE HDEVHandle;
-	HANDLE socketHandle;
+typedef struct t1 {
 	HANDLE hEvent;
-	struct HDEVSocket* Next;
-} HDEVSocketContainer;
+	HANDLE socketHandle;
+	struct t1* Next;
+} SocketContainer;
 
-typedef struct DefineSocketListOfDevice
+typedef struct t2
 {
 	devno_t devno;
-	HDEVSocketContainer* FirstSocketHDEVContainer;
-	struct DefineSocketListOfDevice* Next;
+	HANDLE HDEVHandle;
+	SocketContainer* FirstSocketContainer;
+	struct t2* Next;
 } DeviceContainer;
 
-typedef struct QueueList {
-	HANDLE socketHandle;
-	struct QueueList* Next;
+typedef struct q1 {
+	//data is from device when True 
+	BOOL fromDevice;
+	devbuf_t* socketBuf;
+	devbuf_t* hdevBuf;
+	struct q1* Next;
 } Queue;
 
-typedef struct dictionaryOfQueue {
+typedef struct q2 {
+	devno_t devno;
 	Queue* queue;
-	HANDLE hdevHandle;
-	struct dictionaryOfQueue* Next;
+	struct q2* Next;
 } Dictionary;
 
-extern int Enqueue(HANDLE hdevHandle, HANDLE socketHandle);
+extern BOOL DeciveIsExist(devno_t devno, DeviceContainer** existDeviceContainer);
 
-extern BOOL isFirst(HANDLE hdevHandle, HANDLE socketHandle);
+extern int AddToArray(devno_t devno, HANDLE HDEVHandle, HANDLE socketHandle, HANDLE hEvent);
 
-extern void Dequeue(Dictionary* currentDicKeyValuePair);
+extern int Enqueue(devno_t devno, BOOL toDevice, devbuf_t* socketBuf, devbuf_t* hdevBuf);
 
-extern BOOL IsContains(devno_t devno, DeviceContainer** existDeviceContainer);
-
+extern Queue* Dequeue(devno_t devno);
 
 
 extern void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP_WORK work);
+
+extern void CALLBACK ThreadForConsumerRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP_WORK work);
 
 extern void signalhandlerPool(int signal);
 #endif
