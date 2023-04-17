@@ -39,7 +39,7 @@ export_device(devno_t devno, SOCKET sockfd)
 		return ERR_GENERAL;
 	}
 	sendPVoid->devno = devno;
-	sendPVoid->socketHandle = socketHandle;	 
+	sendPVoid->socketHandle = socketHandle;
 	//Create produce Request Thread
 	PTP_WORK producerWork = CreateThreadpoolWork(ThreadForProduceRequest, sendPVoid, NULL);
 	if(producerWork == NULL) {
@@ -48,6 +48,7 @@ export_device(devno_t devno, SOCKET sockfd)
 		return ERR_GENERAL;
 	}
 	SubmitThreadpoolWork(producerWork);
+	
 	return 0;
 }
 

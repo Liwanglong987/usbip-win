@@ -16,7 +16,6 @@
  * Such a global variable does not pose a severe limitation.
  * Because userspace binaries(usbip.exe, usbipd.exe) have only a single usbip_forward().
  */
-static HANDLE	hEvent;
 
 #ifdef DEBUG_PDU
 #undef USING_STDOUT
@@ -339,7 +338,7 @@ setup_rw_overlapped(devbuf_t* buff)
 	return TRUE;
 }
 
-static BOOL
+BOOL
 init_devbuf(devbuf_t* buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEvent)
 {
 	buff->bufp = (char*)malloc(1024);
@@ -554,30 +553,28 @@ int read_dev(devbuf_t* rbuff, BOOL swap_req_write)
 		return 0;
 	}
 
-	if(rbuff->step_reading == 2) {
-		if(rbuff->swap_req && iso_len > 0)
+	if(rbuff->swap_req && iso_len > 0)
+		swap_iso_descs_endian((char*)(hdr + 1) + xfer_len, hdr->u.ret_submit.number_of_packets);
+
+	DBG_USBIP_HEADER(hdr);
+
+	if(swap_req_write) {
+		if(iso_len > 0)
 			swap_iso_descs_endian((char*)(hdr + 1) + xfer_len, hdr->u.ret_submit.number_of_packets);
-
-		DBG_USBIP_HEADER(hdr);
-
-		if(swap_req_write) {
-			if(iso_len > 0)
-				swap_iso_descs_endian((char*)(hdr + 1) + xfer_len, hdr->u.ret_submit.number_of_packets);
-			swap_usbip_header_endian(hdr, FALSE);
-		}
-
-		if(hdr->base.command == USBIP_CMD_SUBMIT && ((hdr->u.cmd_submit.setup[0] & 3) == 1)) {
-			rbuff->requiredResponse = TRUE;
-		}
-		rbuff->offhdr += (sizeof(struct usbip_header) + len_data);
-		if(rbuff->bufp == rbuff->bufc)
-			rbuff->bufmaxc = rbuff->offp;
-		rbuff->step_reading = 0;
+		swap_usbip_header_endian(hdr, FALSE);
 	}
+
+	if(hdr->base.command == USBIP_CMD_SUBMIT && ((hdr->u.cmd_submit.setup[0] & 3) == 1)) {
+		rbuff->requiredResponse = TRUE;
+	}
+	rbuff->offhdr += (sizeof(struct usbip_header) + len_data);
+	if(rbuff->bufp == rbuff->bufc)
+		rbuff->bufmaxc = rbuff->offp;
+	rbuff->step_reading = 0;
 
 	return 1;
 }
-static BOOL
+BOOL
 read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff)
 {
 	int	res;

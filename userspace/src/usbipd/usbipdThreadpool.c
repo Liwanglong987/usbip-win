@@ -283,9 +283,128 @@ void CALLBACK ThreadForConsumerRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PT
 		}
 	}
 }
+static void
+signalhandler(int signal)
+{
+	interrupted = TRUE;
+	SetEvent(hEvent);
+}
+
 
 void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP_WORK work)
 {
+	pvoid_t* pctx = (pvoid_t*)ctx;
+
+	dbg("stub forwarding started");
+
+	devbuf_t	buff_src, buff_dst;
+	const char* desc_src, * desc_dst;
+	BOOL	is_req_src;
+	BOOL	swap_req_src, swap_req_dst;
+
+	desc_src = "socket";
+	desc_dst = "stub";
+	is_req_src = TRUE;
+	swap_req_src = TRUE;
+	swap_req_dst = FALSE;
+	HANDLE hdev_src = pctx->socketHandle;
+
+	hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+	if(hEvent == NULL) {
+		dbg("failed to create event");
+		return;
+	}
+	devno_t devno = pctx->devno;
+	HANDLE hdevHandle = open_stub_dev(devno);
+	if(hdevHandle == INVALID_HANDLE_VALUE) {
+		dbg("cannot open devno: %hhu", devno);
+		return;
+	}
+	HANDLE hdev_dst = hdevHandle;
+	if(!init_devbuf(&buff_src, desc_src, TRUE, swap_req_src, hdev_src, hEvent)) {
+		CloseHandle(hEvent);
+		dbg("failed to initialize %s buffer", desc_src);
+		return;
+	}
+	if(!init_devbuf(&buff_dst, desc_dst, FALSE, swap_req_dst, hdev_dst, hEvent)) {
+		CloseHandle(hEvent);
+		dbg("failed to initialize %s buffer", desc_dst);
+		cleanup_devbuf(&buff_src);
+		return;
+	}
+	buff_src.peer = &buff_dst;
+	buff_dst.peer = &buff_src;
+
+	signal(SIGINT, signalhandler);
+	devbuf_t* rbuff = &buff_src;
+	devbuf_t* wbuff = &buff_dst;
+	int	res;
+	while(!interrupted) {
+
+		if(!rbuff->in_reading) {
+			res = read_dev(rbuff, wbuff->swap_req);
+			if(res < 0)
+				break;
+			if(res > 0)
+			{
+				if(write_devbuf(wbuff, rbuff) == FALSE)
+					break;
+			}
+		}
+
+
+		if(!wbuff->in_reading) {
+			res = read_dev(wbuff, rbuff->swap_req);
+			if(res < 0)
+				break;
+			if(res > 0)
+			{
+				if(write_devbuf(rbuff, wbuff) == FALSE)
+					break;
+			}
+		}
+
+
+		if(!read_write_dev(&buff_src, &buff_dst))
+			break;
+		if(!read_write_dev(&buff_dst, &buff_src))
+			break;
+
+		if(buff_src.invalid || buff_dst.invalid)
+			break;
+		if(buff_src.in_reading && buff_dst.in_reading &&
+			(buff_src.in_writing || BUFREMAIN_C(&buff_dst) == 0) &&
+			(buff_dst.in_writing || BUFREMAIN_C(&buff_src) == 0)) {
+			WaitForSingleObjectEx(hEvent, INFINITE, TRUE);
+			ResetEvent(hEvent);
+		}
+	}
+
+	if(interrupted) {
+		info("CTRL-C received\n");
+	}
+	signal(SIGINT, SIG_DFL);
+
+	if(buff_src.in_reading)
+		CancelIoEx(hdev_src, &buff_src.ovs[0]);
+	if(buff_dst.in_reading)
+		CancelIoEx(hdev_dst, &buff_dst.ovs[0]);
+
+	while(buff_src.in_reading || buff_dst.in_reading || buff_src.in_writing || buff_dst.in_writing) {
+		WaitForSingleObjectEx(hEvent, INFINITE, TRUE);
+	}
+
+	cleanup_devbuf(&buff_src);
+	cleanup_devbuf(&buff_dst);
+	CloseHandle(hEvent);
+
+	closesocket(pctx->socketHandle);
+	free(pctx);
+
+	CloseThreadpoolWork(work);
+
+	dbg("stub forwarding stopped");
+	/*
 	dbg("enter");
 	pvoid_t* pvoid_data = (pvoid_t*)ctx;
 	devno_t devno = pvoid_data->devno;
@@ -384,6 +503,8 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 			ResetEvent(hEvent);
 		}
 	}
+	*/
+
 	dbg("break");
 }
 
