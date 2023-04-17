@@ -46,7 +46,7 @@ extern int AddToArray(devno_t devno, HANDLE HDEVHandle, HANDLE socketHandle, HAN
 extern int Enqueue(devno_t devno, BOOL toDevice, devbuf_t* socketBuf, devbuf_t* hdevBuf);
 
 extern Queue* Dequeue(devno_t devno);
-
+extern BOOL Contains(devno_t devno, devbuf_t* socketBuf);
 
 extern void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP_WORK work);
 

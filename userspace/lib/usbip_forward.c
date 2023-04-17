@@ -516,21 +516,23 @@ int read_dev(devbuf_t* rbuff, BOOL swap_req_write)
 		return 0;
 	}
 
-	if(rbuff->swap_req && iso_len > 0)
-		swap_iso_descs_endian((char*)(hdr + 1) + xfer_len, hdr->u.ret_submit.number_of_packets);
-
-	DBG_USBIP_HEADER(hdr);
-
-	if(swap_req_write) {
-		if(iso_len > 0)
+	if(rbuff->step_reading == 2) {
+		if(rbuff->swap_req && iso_len > 0)
 			swap_iso_descs_endian((char*)(hdr + 1) + xfer_len, hdr->u.ret_submit.number_of_packets);
-		swap_usbip_header_endian(hdr, FALSE);
-	}
 
-	rbuff->offhdr += (sizeof(struct usbip_header) + len_data);
-	if(rbuff->bufp == rbuff->bufc)
-		rbuff->bufmaxc = rbuff->offp;
-	rbuff->step_reading = 0;
+		DBG_USBIP_HEADER(hdr);
+
+		if(swap_req_write) {
+			if(iso_len > 0)
+				swap_iso_descs_endian((char*)(hdr + 1) + xfer_len, hdr->u.ret_submit.number_of_packets);
+			swap_usbip_header_endian(hdr, FALSE);
+		}
+
+		rbuff->offhdr += (sizeof(struct usbip_header) + len_data);
+		if(rbuff->bufp == rbuff->bufc)
+			rbuff->bufmaxc = rbuff->offp;
+		rbuff->step_reading = 0;
+	}
 
 	return 1;
 }

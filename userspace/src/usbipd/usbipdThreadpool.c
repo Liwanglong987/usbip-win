@@ -85,6 +85,29 @@ int AddToArray(devno_t devno, HANDLE HDEVHandle, HANDLE socketHandle, HANDLE hEv
 
 }
 
+BOOL Contains(devno_t devno, devbuf_t* socketBuf) {
+	Dictionary* current = dictionary;
+	for(;;) {
+		if(current == NULL) {
+			return FALSE;
+		}
+		if(current->devno == devno) {
+			Queue* currentQueue = current->queue;
+			for(;;) {
+				if(currentQueue == NULL) {
+
+					return FALSE;
+				}
+				else if(currentQueue->socketBuf->hdev == socketBuf->hdev)
+				{
+					return TRUE;
+				}
+				currentQueue = currentQueue->Next;
+			}
+		}
+		current = current->Next;
+	}
+}
 int Enqueue(devno_t devno, BOOL fromDevice, devbuf_t* socketBuf, devbuf_t* hdevBuf) {
 	Queue* pNewQueue = (Queue*)malloc(sizeof(Queue));
 	if(pNewQueue == NULL) {
@@ -153,12 +176,14 @@ void CALLBACK ThreadForConsumerRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PT
 	devno_t* pDevno = (devno_t*)ctx;
 	devno_t devno = * pDevno;
 	int lastStep_reading = 0;
-	BOOL isEqual = FALSE;
+	BOOL writing = FALSE;
+	int step = 0;
 	Queue* firstQueue = Dequeue(devno);
 	while(!interrupted)
 	{
 		if(firstQueue == NULL) {
 			firstQueue = Dequeue(devno);
+			step = 0;
 			continue;
 		}
 		else
@@ -166,38 +191,46 @@ void CALLBACK ThreadForConsumerRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PT
 			devbuf_t* socketBuf = firstQueue->socketBuf;
 			devbuf_t* hdevBuf = firstQueue->hdevBuf;
 
-			if(firstQueue->fromDevice == FALSE) {
-				BOOL cIsEqualTop = hdevBuf->bufc != hdevBuf->bufp;
-				if(isEqual != cIsEqualTop) {
-					if(cIsEqualTop) {
-						free(firstQueue);
-						firstQueue = NULL;
-					}
-					isEqual = cIsEqualTop;
-				}
-			}
-			else
-			{
-				if(lastStep_reading != hdevBuf->step_reading) {
-					if(lastStep_reading == 2 && hdevBuf->step_reading == 0) {
-						free(firstQueue);
-						firstQueue = NULL;
-					}
-					lastStep_reading = hdevBuf->step_reading;
-				}
-			}
-
 			if(!write_devbuf(hdevBuf, socketBuf)) {
 				break;
 			}
-			if(!hdevBuf->in_reading && firstQueue->fromDevice == TRUE) {
-				int ret = read_dev(hdevBuf, socketBuf->swap_req);
-				if(ret < 0) {
-					dbg("read data from device fail once");
-					break;
+
+			BOOL inWriting = hdevBuf->in_writing;
+			if(writing != inWriting) {
+				if(inWriting == FALSE && writing == TRUE) {
+					step++;
+				}
+				writing = inWriting;
+			}
+
+			if(firstQueue->fromDevice == FALSE) {
+				if(step == 1) {
+					free(firstQueue);
+					firstQueue = NULL;
 				}
 			}
 
+			if(firstQueue->fromDevice == TRUE) {
+				if(!hdevBuf->in_reading) {
+					int ret = read_dev(hdevBuf, socketBuf->swap_req);
+					if(ret < 0) {
+						dbg("read data from device fail once");
+						break;
+					}
+				}
+
+				if(lastStep_reading != hdevBuf->step_reading) {
+					if(lastStep_reading == 2 && hdevBuf->step_reading == 0) {
+						step++;
+					}
+					lastStep_reading = hdevBuf->step_reading;
+				}
+
+				if(step == 2) {
+					free(firstQueue);
+					firstQueue = NULL;
+				}
+			}
 		}
 	}
 }
@@ -260,30 +293,16 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 	while(TRUE)
 	{
 		dbg("1");
-		BOOL isFirstOne = isFirst(bufferOfhdev.hdev, buffOfSocket.hdev);
 		if(!buffOfSocket.in_reading) {
 			int ret = read_dev(&buffOfSocket, bufferOfhdev.swap_req);
 			if(ret < 0)
 				break;
 		}
-		if(buffOfSocket.step_reading != 0 && isFirstOne == FALSE) {
+		if(buffOfSocket.step_reading == 2 && Contains(devno, &buffOfSocket) == FALSE) {
 			dbg("3");
 			Enqueue(devno, TRUE, bufferOfhdev.hdev, buffOfSocket.hdev);
 		}
 
-		if(isFirstOne == TRUE) {
-			dbg("2");
-			if(!write_devbuf(&bufferOfhdev, &buffOfSocket)) {
-				break;
-			}
-			if(!bufferOfhdev.in_reading) {
-				dbg("4");
-				int ret = read_dev(&bufferOfhdev, buffOfSocket.swap_req);
-				if(ret < 0) {
-					break;
-				}
-			}
-		}
 		if(!write_devbuf(&buffOfSocket, &bufferOfhdev)) {
 			dbg("5");
 			break;
