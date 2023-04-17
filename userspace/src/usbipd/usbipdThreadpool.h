@@ -26,8 +26,6 @@ typedef struct t2
 } DeviceContainer;
 
 typedef struct q1 {
-	//data is from device when True 
-	BOOL fromDevice;
 	devbuf_t* socketBuf;
 	devbuf_t* hdevBuf;
 	struct q1* Next;
@@ -39,6 +37,11 @@ typedef struct q2 {
 	struct q2* Next;
 } Dictionary;
 
+typedef struct deviceConsumerSign {
+	devno_t devno;
+	struct deviceConsumerSign* Next;
+} DeviceForConsumerThread;
+
 extern BOOL DeciveIsExist(devno_t devno, DeviceContainer** existDeviceContainer);
 
 extern int AddToArray(devno_t devno, HANDLE HDEVHandle, HANDLE socketHandle, HANDLE hEvent);
@@ -46,6 +49,7 @@ extern int AddToArray(devno_t devno, HANDLE HDEVHandle, HANDLE socketHandle, HAN
 extern int Enqueue(devno_t devno, BOOL toDevice, devbuf_t* socketBuf, devbuf_t* hdevBuf);
 
 extern Queue* Dequeue(devno_t devno);
+
 extern BOOL Contains(devno_t devno, devbuf_t* socketBuf);
 
 extern void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP_WORK work);

@@ -367,6 +367,41 @@ init_devbuf(devbuf_t* buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE
 	return TRUE;
 }
 
+BOOL
+init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEvent)
+{
+	devbuf_t* newBuff = (devbuf_t*)malloc(sizeof(devbuf_t));
+	if(newBuff == NULL) {
+		dbg("fail to malloc");
+		return FALSE;
+	}
+	newBuff->bufp = (char*)malloc(1024);
+	if(newBuff->bufp == NULL)
+		return FALSE;
+	newBuff->bufc = newBuff->bufp;
+	newBuff->desc = desc;
+	newBuff->is_req = is_req;
+	newBuff->swap_req = swap_req;
+	newBuff->in_reading = FALSE;
+	newBuff->in_writing = FALSE;
+	newBuff->invalid = FALSE;
+	newBuff->step_reading = 0;
+	newBuff->offhdr = 0;
+	newBuff->offp = 0;
+	newBuff->offc = 0;
+	newBuff->bufmaxp = 1024;
+	newBuff->bufmaxc = 0;
+	newBuff->hdev = hdev;
+	newBuff->hEvent = hEvent;
+	if(!setup_rw_overlapped(newBuff)) {
+		free(newBuff->bufp);
+		free(newBuff);
+		return FALSE;
+	}
+	*buff = newBuff;
+	return TRUE;
+}
+
 void
 cleanup_devbuf(devbuf_t* buff)
 {
@@ -475,6 +510,7 @@ write_devbuf(devbuf_t* wbuff, devbuf_t* rbuff)
 		rbuff->bufmaxc = rbuff->offhdr;
 	}
 	if(!wbuff->in_writing && BUFREMAIN_C(rbuff) > 0) {
+		dbg("towrite");
 		if(!WriteFileEx(wbuff->hdev, BUFCUR_C(rbuff), BUFREMAIN_C(rbuff), &wbuff->ovs[1], write_completion)) {
 			dbg("failed to write sock: err: 0x%lx", GetLastError());
 			return FALSE;
