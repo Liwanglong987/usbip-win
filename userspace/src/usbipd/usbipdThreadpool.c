@@ -137,7 +137,7 @@ static BOOL AddNewConsumerThreadForDevice(devno_t devno) {
 	}
 }
 
-int Enqueue(devno_t devno, devbuf_t* socketBuf, devbuf_t* hdevBuf) {
+int Enqueue(devno_t devno, devbuf_t* socketBuf) {
 	Queue* pNewQueue = (Queue*)malloc(sizeof(Queue));
 	if(pNewQueue == NULL) {
 		dbg("fail to malloc memory");
@@ -243,7 +243,7 @@ void CALLBACK ThreadForConsumerRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PT
 			}
 
 			if(socketBuf->requiredResponse == FALSE) {
-				if(socketBuf->offp == socketBuf->offc && socketBuf->step_reading == 0) {
+				if(socketBuf->offp == socketBuf->offc) {
 					dbg("108");
 					Queue* toFree = Dequeue(devno);
 					if(toFree != NULL) {
@@ -340,17 +340,14 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 		cleanup_devbuf(&bufferOfhdev);
 		return;
 	}
-	PTP_WORK producerWork = CreateThreadpoolWork(ThreadForConsumerRequest, &devno, NULL);
-	if(producerWork == NULL) {
+	PTP_WORK consumerWork = CreateThreadpoolWork(ThreadForConsumerRequest, &devno, NULL);
+	if(consumerWork == NULL) {
 		dbg("failed to create thread pool work: error: %lx", GetLastError());
 		free(hdevHandle);
 		return ERR_GENERAL;
 	}
-	SubmitThreadpoolWork(producerWork);
+	SubmitThreadpoolWork(consumerWork);
 
-	devbuf_t* rbuff = pBuffOfSocket;
-	devbuf_t* wbuff = pBufferOfhdev;
-	int res;
 	while(TRUE)
 	{
 		if(!buffOfSocket.in_reading) {
@@ -361,12 +358,13 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 				break;
 			}
 		}
-		if(buffOfSocket.step_reading != 0) {
+		if(buffOfSocket.offp > 0) {
 			if(Contains(devno, &buffOfSocket) == FALSE) {
 				dbg("205");
-				Enqueue(devno, &buffOfSocket, &bufferOfhdev);
+				Enqueue(devno, &buffOfSocket);
 			}
 		}
+
 		BOOL writeError = write_devbuf(&buffOfSocket, &bufferOfhdev);
 		if(writeError == FALSE) {
 			break;

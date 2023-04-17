@@ -27,7 +27,6 @@ typedef struct t2
 
 typedef struct q1 {
 	devbuf_t* socketBuf;
-	devbuf_t* hdevBuf;
 	struct q1* Next;
 } Queue;
 
@@ -46,7 +45,7 @@ extern BOOL DeciveIsExist(devno_t devno, DeviceContainer** existDeviceContainer)
 
 extern int AddToArray(devno_t devno, HANDLE HDEVHandle, HANDLE socketHandle, HANDLE hEvent);
 
-extern int Enqueue(devno_t devno, devbuf_t* socketBuf, devbuf_t* hdevBuf);
+extern int Enqueue(devno_t devno, devbuf_t* socketBuf);
 
 extern Queue* Dequeue(devno_t devno);
 

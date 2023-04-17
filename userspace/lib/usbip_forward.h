@@ -32,12 +32,9 @@ typedef struct _devbuf {
 	HANDLE	hEvent;
 } devbuf_t;
 
-extern void usbip_forward(HANDLE hdev_src, HANDLE hdev_dst, BOOL inbound);
-extern BOOL init_devbuf(devbuf_t* buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEvent);
 extern BOOL init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEvent);
-extern BOOL read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff);
-extern BOOL write_devbuf(devbuf_t* wbuff, devbuf_t* rbuff);
 extern int read_dev(devbuf_t* rbuff, BOOL swap_req_write);
+extern BOOL write_devbuf(devbuf_t* wbuff, devbuf_t* rbuff);
 extern void cleanup_devbuf(devbuf_t* buff);
 static volatile BOOL	interrupted;
 #endif

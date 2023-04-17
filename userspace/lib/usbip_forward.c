@@ -339,7 +339,7 @@ setup_rw_overlapped(devbuf_t* buff)
 	return TRUE;
 }
 
-BOOL
+static BOOL
 init_devbuf(devbuf_t* buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEvent)
 {
 	buff->bufp = (char*)malloc(1024);
@@ -566,7 +566,7 @@ int read_dev(devbuf_t* rbuff, BOOL swap_req_write)
 			swap_usbip_header_endian(hdr, FALSE);
 		}
 
-		if(hdr->base.command == USBIP_CMD_SUBMIT && ((hdr->u.cmd_submit.setup[0] & 3) == 0)) {
+		if(hdr->base.command == USBIP_CMD_SUBMIT && ((hdr->u.cmd_submit.setup[0] & 3) == 1)) {
 			rbuff->requiredResponse = TRUE;
 		}
 		rbuff->offhdr += (sizeof(struct usbip_header) + len_data);
@@ -577,8 +577,7 @@ int read_dev(devbuf_t* rbuff, BOOL swap_req_write)
 
 	return 1;
 }
-
-BOOL
+static BOOL
 read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff)
 {
 	int	res;
