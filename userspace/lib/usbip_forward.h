@@ -12,6 +12,7 @@
 
 typedef struct _devbuf {
 	const char* desc;
+	BOOL requiredResponse;
 	BOOL	is_req, swap_req;
 	BOOL	invalid;
 	/* asynchronous read is in progress */

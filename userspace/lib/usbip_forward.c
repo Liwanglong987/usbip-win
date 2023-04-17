@@ -351,6 +351,7 @@ init_devbuf(devbuf_t* buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE
 	buff->swap_req = swap_req;
 	buff->in_reading = FALSE;
 	buff->in_writing = FALSE;
+	buff->requiredResponse = FALSE;
 	buff->invalid = FALSE;
 	buff->step_reading = 0;
 	buff->offhdr = 0;
@@ -384,6 +385,7 @@ init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req,
 	newBuff->swap_req = swap_req;
 	newBuff->in_reading = FALSE;
 	newBuff->in_writing = FALSE;
+	newBuff->requiredResponse = FALSE;
 	newBuff->invalid = FALSE;
 	newBuff->step_reading = 0;
 	newBuff->offhdr = 0;
@@ -564,6 +566,9 @@ int read_dev(devbuf_t* rbuff, BOOL swap_req_write)
 			swap_usbip_header_endian(hdr, FALSE);
 		}
 
+		if(hdr->base.command == USBIP_CMD_SUBMIT && ((hdr->u.cmd_submit.setup[0] & 3) == 0)) {
+			rbuff->requiredResponse = TRUE;
+		}
 		rbuff->offhdr += (sizeof(struct usbip_header) + len_data);
 		if(rbuff->bufp == rbuff->bufc)
 			rbuff->bufmaxc = rbuff->offp;

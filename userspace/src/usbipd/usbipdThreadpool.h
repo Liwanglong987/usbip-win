@@ -46,7 +46,7 @@ extern BOOL DeciveIsExist(devno_t devno, DeviceContainer** existDeviceContainer)
 
 extern int AddToArray(devno_t devno, HANDLE HDEVHandle, HANDLE socketHandle, HANDLE hEvent);
 
-extern int Enqueue(devno_t devno, BOOL toDevice, devbuf_t* socketBuf, devbuf_t* hdevBuf);
+extern int Enqueue(devno_t devno, devbuf_t* socketBuf, devbuf_t* hdevBuf);
 
 extern Queue* Dequeue(devno_t devno);
 

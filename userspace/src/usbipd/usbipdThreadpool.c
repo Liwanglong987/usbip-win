@@ -143,7 +143,6 @@ int Enqueue(devno_t devno, devbuf_t* socketBuf, devbuf_t* hdevBuf) {
 		dbg("fail to malloc memory");
 		return ERR_GENERAL;
 	}
-	pNewQueue->hdevBuf = hdevBuf;
 	pNewQueue->socketBuf = socketBuf;
 	pNewQueue->Next = NULL;
 
@@ -226,50 +225,25 @@ void CALLBACK ThreadForConsumerRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PT
 	devno_t devno = * pDevno;
 	int lastStep_reading = 0;
 	BOOL writing = FALSE;
-	int step = 0;
-	BOOL requireResponse = FALSE;
-	BOOL hasChangeStage = FALSE;
 	Queue* firstQueue = GetFirstOne(devno);
 	while(!interrupted)
 	{
 		if(firstQueue == NULL) {
 			firstQueue = GetFirstOne(devno);
-			step = 0;
-			requireResponse = FALSE;
-			hasChangeStage = FALSE;
 			continue;
 		}
 		else
 		{
 			devbuf_t* socketBuf = firstQueue->socketBuf;
-			devbuf_t* hdevBuf = firstQueue->hdevBuf;
-			if(hasChangeStage == FALSE && BUFREAD_P(socketBuf) >= sizeof(struct usbip_header) + 1) {
+			devbuf_t* hdevBuf = socketBuf->peer;
 
-				char realRequireResponse = *(socketBuf->bufp + sizeof(struct usbip_header));
-				dbg("realRequireResponse = %c", realRequireResponse);
-				if(realRequireResponse & 3 == 0) {
-					dbg("210");
-					requireResponse = TRUE;
-				}
-				hasChangeStage = TRUE;
-			}
 			if(!write_devbuf(hdevBuf, socketBuf)) {
 				dbg("103");
 				break;
 			}
 
-			BOOL inWriting = hdevBuf->in_writing;
-			if(writing != inWriting) {
-				dbg("105");
-				if(inWriting == FALSE && writing == TRUE) {
-					dbg("106");
-					step++;
-				}
-				writing = inWriting;
-			}
-
-			if(requireResponse == FALSE) {
-				if(step == 1) {
+			if(socketBuf->requiredResponse == FALSE) {
+				if(socketBuf->offp == socketBuf->offc && socketBuf->step_reading == 0) {
 					dbg("108");
 					Queue* toFree = Dequeue(devno);
 					if(toFree != NULL) {
@@ -294,21 +268,17 @@ void CALLBACK ThreadForConsumerRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PT
 				if(lastStep_reading != hdevBuf->step_reading) {
 					dbg("112");
 					if(lastStep_reading == 2 && hdevBuf->step_reading == 0) {
+						Queue* toFree = Dequeue(devno);
+						if(toFree != NULL) {
+							dbg("115");
+							free(toFree);
+						}
+						firstQueue = NULL;
 						dbg("113");
-						step++;
 					}
 					lastStep_reading = hdevBuf->step_reading;
 				}
 
-				if(step == 2) {
-					dbg("114");
-					Queue* toFree = Dequeue(devno);
-					if(toFree != NULL) {
-						dbg("115");
-						free(toFree);
-					}
-					firstQueue = NULL;
-				}
 			}
 		}
 	}
@@ -354,7 +324,7 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 	devbuf_t* pBufferOfhdev;
 	if(!init_devbufStatic(&pBufferOfhdev, "stub", FALSE, FALSE, hdevHandle, hEvent)) {
 		CloseHandle(hEvent);
-		cleanup_devbuf(&pBufferOfhdev);
+		cleanup_devbuf(pBufferOfhdev);
 		dbg("failed to initialize %s buffer", "socket");
 		return;
 	}
@@ -377,7 +347,10 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 		return ERR_GENERAL;
 	}
 	SubmitThreadpoolWork(producerWork);
-	int sign = 1;
+
+	devbuf_t* rbuff = pBuffOfSocket;
+	devbuf_t* wbuff = pBufferOfhdev;
+	int res;
 	while(TRUE)
 	{
 		if(!buffOfSocket.in_reading) {
@@ -396,7 +369,6 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 		}
 		BOOL writeError = write_devbuf(&buffOfSocket, &bufferOfhdev);
 		if(writeError == FALSE) {
-			dbg("207");
 			break;
 		}
 
