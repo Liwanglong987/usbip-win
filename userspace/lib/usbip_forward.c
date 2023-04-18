@@ -16,6 +16,7 @@
  * Such a global variable does not pose a severe limitation.
  * Because userspace binaries(usbip.exe, usbipd.exe) have only a single usbip_forward().
  */
+static HANDLE	hEvent;
 
 #ifdef DEBUG_PDU
 #undef USING_STDOUT
@@ -337,15 +338,14 @@ setup_rw_overlapped(devbuf_t* buff)
 	}
 	return TRUE;
 }
-
-BOOL
-init_devbuf(devbuf_t* buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEvent)
+//error
+static BOOL
+init_devbuf(devbuf_t* buff, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEvent)
 {
 	buff->bufp = (char*)malloc(1024);
 	if(buff->bufp == NULL)
 		return FALSE;
 	buff->bufc = buff->bufp;
-	buff->desc = desc;
 	buff->is_req = is_req;
 	buff->swap_req = swap_req;
 	buff->in_reading = FALSE;
@@ -360,7 +360,7 @@ init_devbuf(devbuf_t* buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE
 	buff->bufmaxp = 1024;
 	buff->bufmaxc = 0;
 	buff->hdev = hdev;
-	buff->hEvent = hEvent;
+	buff->hEventForConsumer = hEvent;
 	if(!setup_rw_overlapped(buff)) {
 		free(buff->bufp);
 		return FALSE;
@@ -369,7 +369,7 @@ init_devbuf(devbuf_t* buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE
 }
 
 BOOL
-init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEvent)
+init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEventForConsumer, HANDLE hEventForProducer)
 {
 	devbuf_t* newBuff = (devbuf_t*)malloc(sizeof(devbuf_t));
 	if(newBuff == NULL) {
@@ -395,7 +395,8 @@ init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req,
 	newBuff->bufmaxp = 1024;
 	newBuff->bufmaxc = 0;
 	newBuff->hdev = hdev;
-	newBuff->hEvent = hEvent;
+	newBuff->hEventForConsumer = hEventForConsumer;
+	newBuff->hEventForProducer = hEventForProducer;
 	if(!setup_rw_overlapped(newBuff)) {
 		free(newBuff->bufp);
 		free(newBuff);
@@ -428,7 +429,8 @@ read_completion(DWORD errcode, DWORD nread, LPOVERLAPPED lpOverlapped)
 		rbuff->invalid = TRUE;
 	}
 	rbuff->in_reading = FALSE;
-	SetEvent(rbuff->hEvent);
+	SetEvent(rbuff->hEventForConsumer);
+	SetEvent(rbuff->hEventForConsumer);
 }
 
 static BOOL
@@ -442,7 +444,7 @@ read_devbuf(devbuf_t* rbuff, DWORD nreq)
 			DWORD	nmore = nreq - BUFREADMAX_P(rbuff);
 
 			bufnew = (char*)realloc(rbuff->bufp, rbuff->bufmaxp + nmore);
-			if(bufnew == NULL) {
+		if(bufnew == NULL) {
 				dbg("failed to reallocate buffer: %s", rbuff->desc);
 				return FALSE;
 			}
@@ -455,20 +457,20 @@ read_devbuf(devbuf_t* rbuff, DWORD nreq)
 			bufnew = (char*)malloc(nreq + nexist);
 			if(bufnew == NULL) {
 				dbg("failed to allocate buffer: %s", rbuff->desc);
-				return FALSE;
-			}
-			if(nexist > 0) {
-				/* copy from already read usbip header */
+			return FALSE;
+		}
+		if(nexist > 0) {
+			/* copy from already read usbip header */
 				memcpy(bufnew, BUFHDR_P(rbuff), nexist);
-			}
-			rbuff->bufp = bufnew;
-			rbuff->offhdr = 0;
-			rbuff->offp = nexist;
-			rbuff->bufmaxp = nreq + nexist;
+		}
+		rbuff->bufp = bufnew;
+		rbuff->offp = nexist;
+		rbuff->bufmaxp = nreq + nexist;
 		}
 	}
 
 	if(!rbuff->in_reading) {
+		dbg("newRead%d", nreq);
 		if(!ReadFileEx(rbuff->hdev, BUFCUR_P(rbuff), nreq, &rbuff->ovs[0], read_completion)) {
 			DWORD error = GetLastError();
 			dbg("failed to read: err: 0x%lx", error);
@@ -482,7 +484,7 @@ read_devbuf(devbuf_t* rbuff, DWORD nreq)
 	return TRUE;
 }
 
-static VOID CALLBACK
+VOID CALLBACK
 write_completion(DWORD errcode, DWORD nwrite, LPOVERLAPPED lpOverlapped)
 {
 	devbuf_t* wbuff, * rbuff;
@@ -490,7 +492,8 @@ write_completion(DWORD errcode, DWORD nwrite, LPOVERLAPPED lpOverlapped)
 	wbuff = (devbuf_t*)lpOverlapped->hEvent;
 	wbuff->in_writing = FALSE;
 
-	SetEvent(wbuff->hEvent);
+	SetEvent(wbuff->hEventForConsumer);
+	SetEvent(wbuff->hEventForProducer);
 
 	if(errcode != 0)
 		return;
@@ -566,7 +569,7 @@ int read_dev(devbuf_t* rbuff, BOOL swap_req_write)
 		swap_usbip_header_endian(hdr, FALSE);
 	}
 
-	if(hdr->base.command == USBIP_CMD_SUBMIT && ((hdr->u.cmd_submit.setup[0] & 3) == 1)) {
+	if(hdr->base.command == USBIP_CMD_SUBMIT && ((hdr->u.cmd_submit.setup[0] & 0x80) == 0)) {
 		rbuff->requiredResponse = TRUE;
 	}
 	rbuff->offhdr += (sizeof(struct usbip_header) + len_data);

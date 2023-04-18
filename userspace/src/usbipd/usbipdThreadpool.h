@@ -12,7 +12,8 @@ typedef struct {
 } pvoid_t;
 
 typedef struct t1 {
-	HANDLE hEvent;
+	HANDLE hEventForProducer;
+	HANDLE hEventForConsumer;
 	HANDLE socketHandle;
 	struct t1* Next;
 } SocketContainer;
@@ -40,6 +41,37 @@ typedef struct deviceConsumerSign {
 	devno_t devno;
 	struct deviceConsumerSign* Next;
 } DeviceForConsumerThread;
+
+typedef enum {
+	WaitingForRead = 0,
+	ReadingHeader = 1,
+	ReadingData = 2,
+	WaitingForWrite = 3,
+	Writing = 4,
+}wrStep;
+
+typedef struct buffStruct {
+	char* buff;
+	int offp;
+	int bufMax;
+	int offc;
+	wrStep step;
+	BOOL requiredResponse;
+	struct buffStruct* Next;
+}buffers;
+
+typedef struct devbufStruct {
+	BOOL is_req, swap_req;
+	BOOL invalid;
+	buffers* buffers;
+	HANDLE handle;
+	struct _devbuf* peer;
+	OVERLAPPED	ovs[2];
+	/* completion event for read or write */
+	HANDLE hEventToProducer;
+	HANDLE hEventToConsumer;
+
+}devbuf;
 
 extern BOOL DeciveIsExist(devno_t devno, DeviceContainer** existDeviceContainer);
 
