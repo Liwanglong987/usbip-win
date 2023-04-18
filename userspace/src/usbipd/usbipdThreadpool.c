@@ -23,7 +23,8 @@ void signalhandlerPool(int signal)
 			if(currentContainer == NULL) {
 				break;
 			}
-			SetEvent(currentContainer->hEvent);
+			SetEvent(currentContainer->hEventForConsumer);
+			SetEvent(currentContainer->hEventForProducer);
 			currentContainer = currentContainer->Next;
 		}
 		current = current->Next;
@@ -46,14 +47,15 @@ BOOL DeciveIsExist(devno_t devno, DeviceContainer** existDeviceContainer) {
 	}
 }
 
-int AddToArray(devno_t devno, HANDLE HDEVHandle, HANDLE socketHandle, HANDLE hEvent) {
+int AddToArray(devno_t devno, HANDLE HDEVHandle, HANDLE socketHandle,HANDLE hEventForProducer, HANDLE hEventForConsumer) {
 	SocketContainer* socketContainer = (SocketContainer*)malloc(sizeof(SocketContainer));
 	if(socketContainer == NULL) {
 		dbg("fail to mallo");
 		return ERR_GENERAL;
 	}
 	socketContainer->socketHandle = socketHandle;
-	socketContainer->hEvent = hEvent;
+	socketContainer->hEventForConsumer = hEventForConsumer;
+	socketContainer->hEventForProducer = hEventForProducer;
 	socketContainer->Next = NULL;
 
 	DeviceContainer** current = &DeviceContainerArray;
@@ -323,7 +325,7 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 	}
 
 	devbuf_t* buffOfSocket;
-	if(!init_devbufStatic(&buffOfSocket, TRUE, TRUE, socketHandle, hEventToConsumer, hEventToProducer)) {
+	if(!init_devbufStatic(&buffOfSocket, "socket", TRUE, TRUE, socketHandle, hEventToConsumer, hEventToProducer)) {
 		CloseHandle(hEventToConsumer);
 		CloseHandle(hEventToProducer);
 		dbg("failed to initialize %s buffer", "socket");
@@ -332,7 +334,7 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 
 
 	devbuf_t* bufferOfhdev;
-	if(!init_devbufStatic(&bufferOfhdev, FALSE, FALSE, hdevHandle, hEventToConsumer, hEventToProducer)) {
+	if(!init_devbufStatic(&bufferOfhdev, "hdev", FALSE, FALSE, hdevHandle, hEventToConsumer, hEventToProducer)) {
 		CloseHandle(hEventToConsumer);
 		CloseHandle(hEventToProducer);
 		cleanup_devbuf(bufferOfhdev);
@@ -344,9 +346,10 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 	buffOfSocket->peer = bufferOfhdev;
 	bufferOfhdev->peer = buffOfSocket;
 
-	int ret = AddToArray(devno, hdevHandle, socketHandle, hEvent);
+	int ret = AddToArray(devno, hdevHandle, socketHandle, hEventToProducer,hEventToConsumer);
 	if(ret != 0) {
-		CloseHandle(hEvent);
+		CloseHandle(hEventToProducer);
+		CloseHandle(hEventToConsumer);
 		cleanup_devbuf(buffOfSocket);
 		cleanup_devbuf(bufferOfhdev);
 		return;
@@ -378,7 +381,7 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 
 		if(bufferOfhdev->finishRead == TRUE) {
 			dbg("204");
-			if(buffOfSocket->bufp != buffOfSocket->bufc && buffOfSocket->bufc  BUFREMAIN_C(buffOfSocket) == 0) {
+			if(buffOfSocket->bufp != buffOfSocket->bufc && BUFREMAIN_C(buffOfSocket) == 0) {
 				free(buffOfSocket->bufc);
 				buffOfSocket->bufc = buffOfSocket->bufp;
 				buffOfSocket->offc = 0;
@@ -397,8 +400,8 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 		if(buffOfSocket->invalid)
 			break;
 		if(buffOfSocket->in_reading && (buffOfSocket->in_writing || BUFREMAIN_C(bufferOfhdev) == 0)) {
-			WaitForSingleObjectEx(hEvent, INFINITE, TRUE);
-			ResetEvent(hEvent);
+			WaitForSingleObjectEx(hEventToProducer, INFINITE, TRUE);
+			ResetEvent(hEventToProducer);
 		}
 	}
 
@@ -413,12 +416,12 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 		CancelIoEx(hdevHandle, &bufferOfhdev->ovs[0]);
 
 	while(buffOfSocket->in_reading || bufferOfhdev->in_reading || buffOfSocket->in_writing || bufferOfhdev->in_writing) {
-		WaitForSingleObjectEx(hEvent, INFINITE, TRUE);
+		WaitForSingleObjectEx(hEventToProducer, INFINITE, TRUE);
 	}
 
 	cleanup_devbuf(buffOfSocket);
 	cleanup_devbuf(bufferOfhdev);
-	CloseHandle(hEvent);
+	CloseHandle(hEventToProducer);
 
 
 	CloseThreadpoolWork(work);
