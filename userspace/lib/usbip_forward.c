@@ -351,6 +351,7 @@ init_devbuf(devbuf_t* buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE
 	buff->in_reading = FALSE;
 	buff->in_writing = FALSE;
 	buff->requiredResponse = FALSE;
+	buff->finishRead = FALSE;
 	buff->invalid = FALSE;
 	buff->step_reading = 0;
 	buff->offhdr = 0;
@@ -385,6 +386,7 @@ init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req,
 	newBuff->in_reading = FALSE;
 	newBuff->in_writing = FALSE;
 	newBuff->requiredResponse = FALSE;
+	newBuff->finishRead = FALSE;
 	newBuff->invalid = FALSE;
 	newBuff->step_reading = 0;
 	newBuff->offhdr = 0;
@@ -434,7 +436,7 @@ read_devbuf(devbuf_t* rbuff, DWORD nreq)
 {
 	if(BUFREADMAX_P(rbuff) < nreq) {
 		char* bufnew;
-
+		rbuff->finishRead = FALSE;
 		if(rbuff->bufp != rbuff->bufc) {
 			/* reallocation is allowed only if producer and consumer use their own buffers */
 			DWORD	nmore = nreq - BUFREADMAX_P(rbuff);
@@ -571,7 +573,7 @@ int read_dev(devbuf_t* rbuff, BOOL swap_req_write)
 	if(rbuff->bufp == rbuff->bufc)
 		rbuff->bufmaxc = rbuff->offp;
 	rbuff->step_reading = 0;
-
+	rbuff->finishRead = TRUE;
 	return 1;
 }
 BOOL

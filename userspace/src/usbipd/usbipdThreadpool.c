@@ -335,7 +335,6 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 	buff_src.peer = &buff_dst;
 	buff_dst.peer = &buff_src;
 
-	signal(SIGINT, signalhandler);
 	devbuf_t* rbuff = &buff_src;
 	devbuf_t* wbuff = &buff_dst;
 	int	res;
@@ -345,11 +344,10 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 			res = read_dev(rbuff, wbuff->swap_req);
 			if(res < 0)
 				break;
-			if(res > 0)
-			{
-				if(write_devbuf(wbuff, rbuff) == FALSE)
-					break;
-			}
+		}
+		if(rbuff->finishRead == TRUE) {
+			if(write_devbuf(wbuff, rbuff) == FALSE)
+				break;
 		}
 
 
@@ -357,18 +355,11 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 			res = read_dev(wbuff, rbuff->swap_req);
 			if(res < 0)
 				break;
-			if(res > 0)
-			{
-				if(write_devbuf(rbuff, wbuff) == FALSE)
-					break;
-			}
 		}
-
-
-		if(!read_write_dev(&buff_src, &buff_dst))
-			break;
-		if(!read_write_dev(&buff_dst, &buff_src))
-			break;
+		if(wbuff->finishRead == TRUE) {
+			if(write_devbuf(rbuff, wbuff) == FALSE)
+				break;
+		}
 
 		if(buff_src.invalid || buff_dst.invalid)
 			break;
