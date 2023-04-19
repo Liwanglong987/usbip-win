@@ -42,40 +42,10 @@ typedef struct deviceConsumerSign {
 	struct deviceConsumerSign* Next;
 } DeviceForConsumerThread;
 
-typedef enum {
-	WaitingForRead = 0,
-	ReadingHeader = 1,
-	ReadingData = 2,
-	WaitingForWrite = 3,
-	Writing = 4,
-}wrStep;
-
-typedef struct buffStruct {
-	char* buff;
-	int offp;
-	int bufMax;
-	int offc;
-	wrStep step;
-	BOOL requiredResponse;
-	struct buffStruct* Next;
-}buffers;
-
-typedef struct devbufStruct {
-	BOOL is_req, swap_req;
-	BOOL invalid;
-	buffers* buffers;
-	HANDLE handle;
-	struct _devbuf* peer;
-	OVERLAPPED	ovs[2];
-	/* completion event for read or write */
-	HANDLE hEventToProducer;
-	HANDLE hEventToConsumer;
-
-}devbuf;
 
 extern BOOL DeciveIsExist(devno_t devno, DeviceContainer** existDeviceContainer);
 
-extern int AddToArray(devno_t devno, HANDLE HDEVHandle, HANDLE socketHandle, HANDLE hEvent);
+extern int AddToArray(devno_t devno, HANDLE HDEVHandle, HANDLE socketHandle, HANDLE hEventForProducer, HANDLE hEventForConsumer);
 
 extern int Enqueue(devno_t devno, devbuf_t* socketBuf);
 
@@ -88,4 +58,6 @@ extern void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID c
 extern void CALLBACK ThreadForConsumerRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP_WORK work);
 
 extern void signalhandlerPool(int signal);
+
+extern BOOL init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEventForConsumer, HANDLE hEventForProducer);
 #endif

@@ -47,7 +47,7 @@ BOOL DeciveIsExist(devno_t devno, DeviceContainer** existDeviceContainer) {
 	}
 }
 
-int AddToArray(devno_t devno, HANDLE HDEVHandle, HANDLE socketHandle,HANDLE hEventForProducer, HANDLE hEventForConsumer) {
+int AddToArray(devno_t devno, HANDLE HDEVHandle, HANDLE socketHandle, HANDLE hEventForProducer, HANDLE hEventForConsumer) {
 	SocketContainer* socketContainer = (SocketContainer*)malloc(sizeof(SocketContainer));
 	if(socketContainer == NULL) {
 		dbg("fail to mallo");
@@ -346,7 +346,7 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 	buffOfSocket->peer = bufferOfhdev;
 	bufferOfhdev->peer = buffOfSocket;
 
-	int ret = AddToArray(devno, hdevHandle, socketHandle, hEventToProducer,hEventToConsumer);
+	int ret = AddToArray(devno, hdevHandle, socketHandle, hEventToProducer, hEventToConsumer);
 	if(ret != 0) {
 		CloseHandle(hEventToProducer);
 		CloseHandle(hEventToConsumer);
@@ -365,7 +365,7 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 	int	res;
 	while(!interrupted) {
 
-		if(!buffOfSocket->in_reading) {
+		if(buffOfSocket->bufp->RWStatus == Space) {
 			res = read_dev(buffOfSocket, bufferOfhdev->swap_req);
 			if(res < 0)
 				break;

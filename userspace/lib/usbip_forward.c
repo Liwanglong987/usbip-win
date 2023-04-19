@@ -339,34 +339,34 @@ setup_rw_overlapped(devbuf_t* buff)
 	return TRUE;
 }
 //error
-static BOOL
-init_devbuf(devbuf_t* buff, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEvent)
-{
-	buff->bufp = (char*)malloc(1024);
-	if(buff->bufp == NULL)
-		return FALSE;
-	buff->bufc = buff->bufp;
-	buff->is_req = is_req;
-	buff->swap_req = swap_req;
-	buff->in_reading = FALSE;
-	buff->in_writing = FALSE;
-	buff->requiredResponse = FALSE;
-	buff->finishRead = FALSE;
-	buff->invalid = FALSE;
-	buff->step_reading = 0;
-	buff->offhdr = 0;
-	buff->offp = 0;
-	buff->offc = 0;
-	buff->bufmaxp = 1024;
-	buff->bufmaxc = 0;
-	buff->hdev = hdev;
-	buff->hEventForConsumer = hEvent;
-	if(!setup_rw_overlapped(buff)) {
-		free(buff->bufp);
-		return FALSE;
-	}
-	return TRUE;
-}
+//static BOOL
+//init_devbuf(devbuf_t* buff, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEvent)
+//{
+//	buff->bufp = (char*)malloc(1024);
+//	if(buff->bufp == NULL)
+//		return FALSE;
+//	buff->bufc = buff->bufp;
+//	buff->is_req = is_req;
+//	buff->swap_req = swap_req;
+//	buff->in_reading = FALSE;
+//	buff->in_writing = FALSE;
+//	buff->requiredResponse = FALSE;
+//	buff->finishRead = FALSE;
+//	buff->invalid = FALSE;
+//	buff->step_reading = 0;
+//	buff->offhdr = 0;
+//	buff->offp = 0;
+//	buff->offc = 0;
+//	buff->bufmaxp = 1024;
+//	buff->bufmaxc = 0;
+//	buff->hdev = hdev;
+//	buff->hEventForConsumer = hEvent;
+//	if(!setup_rw_overlapped(buff)) {
+//		free(buff->bufp);
+//		return FALSE;
+//	}
+//	return TRUE;
+//}
 
 BOOL
 init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEventForConsumer, HANDLE hEventForProducer)
