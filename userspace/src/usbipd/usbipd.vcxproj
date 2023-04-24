@@ -155,7 +155,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="usbipdThreadpool.c" />
     <ClCompile Include="usbipd.c" />
     <ClCompile Include="usbipd_accept.c" />
     <ClCompile Include="usbipd_import.c" />
@@ -166,7 +165,6 @@
   <ItemGroup>
     <ClInclude Include="..\..\config.h" />
     <ClInclude Include="usbipd.h" />
-    <ClInclude Include="usbipdThreadpool.h" />
     <ClInclude Include="usbipd_stub.h" />
   </ItemGroup>
   <ItemGroup>
