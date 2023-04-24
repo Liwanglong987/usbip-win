@@ -562,11 +562,6 @@ read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff)
 {
 	int	res;
 
-	if(!rbuff->in_reading) {
-		if((res = read_dev(rbuff, wbuff->swap_req)) < 0)
-			return FALSE;
-	}
-
 	if(rbuff->bufc->offc == rbuff->bufc->offp && rbuff->bufc != rbuff->bufp) {
 		freeBuffer(rbuff->bufc);
 		rbuff->bufc = rbuff->bufp;
@@ -574,13 +569,24 @@ read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff)
 	if(rbuff->bufp->step_reading == 3 && rbuff->bufc == rbuff->bufp) {
 		rbuff->bufp = createNewBuffer();
 	}
-
-	if(!wbuff->in_writing && rbuff->bufc->step_reading == 3 && rbuff->bufc->offp > rbuff->bufc->offc) {
-		if(!WriteFileEx(wbuff->hdev, rbuff->bufc->buff + rbuff->bufc->offc, rbuff->bufc->offp - rbuff->bufc->offc, &wbuff->ovs[1], write_completion)) {
-			dbg("failed to write sock: err: 0x%lx", GetLastError());
+	if(!rbuff->in_reading) {
+		if((res = read_dev(rbuff, wbuff->swap_req)) < 0)
 			return FALSE;
+	}
+
+	if(!wbuff->in_writing) {
+		dbg("%s1%d", rbuff->desc, rbuff->bufc->step_reading);
+		if(rbuff->bufc->step_reading == 3) {
+			dbg("2");
+			if(rbuff->bufc->offp > rbuff->bufc->offc) {
+				dbg("3");
+				if(!WriteFileEx(wbuff->hdev, rbuff->bufc->buff + rbuff->bufc->offc, rbuff->bufc->offp - rbuff->bufc->offc, &wbuff->ovs[1], write_completion)) {
+					dbg("failed to write sock: err: 0x%lx", GetLastError());
+					return FALSE;
+				}
+				wbuff->in_writing = TRUE;
+			}
 		}
-		wbuff->in_writing = TRUE;
 	}
 
 	return TRUE;
