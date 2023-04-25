@@ -218,6 +218,30 @@ Queue* GetFirstOne(devno_t devno) {
 	}
 }
 
+static  BOOL
+read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff, BOOL readOnly) {
+	int	res;
+
+	if(readOnly) {
+		res = read_dev(rbuff, wbuff->swap_req);
+		if(res < 0)
+			return FALSE;
+	}
+	if(!readOnly) {
+		if(!write_devbuf(wbuff, rbuff))
+			return FALSE;
+	}
+
+	if(rbuff->bufc->offc == rbuff->bufc->offp && rbuff->bufc != rbuff->bufp) {
+		freeBuffer(rbuff->bufc);
+		rbuff->bufc = rbuff->bufp;
+	}
+	if(rbuff->bufp->step_reading == 3 && rbuff->bufc == rbuff->bufp) {
+		rbuff->bufp = createNewBuffer();
+	}
+	return TRUE;
+}
+
 void CALLBACK ThreadForConsumerRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP_WORK work)
 {
 	devno_t* pDevno = (devno_t*)ctx;
@@ -226,10 +250,12 @@ void CALLBACK ThreadForConsumerRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PT
 	}
 	devno_t devno = * pDevno;
 	Queue* firstQueue = GetFirstOne(devno);
+	int step = 0;
 	while(!interrupted)
 	{
 		if(firstQueue == NULL) {
 			firstQueue = GetFirstOne(devno);
+			step = 0;
 			if(firstQueue != NULL) {
 				dbg("getnewone");
 			}
@@ -242,23 +268,13 @@ void CALLBACK ThreadForConsumerRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PT
 			HANDLE hEvent = hdevBuf->hEventForConsumer;
 
 			if(socketBuf->bufc->step_reading == 3 && socketBuf->bufc->offp > socketBuf->bufc->offc && !hdevBuf->in_writing) {
-				if(!WriteFileEx(hdevBuf->hdev, socketBuf->bufc->buff + socketBuf->bufc->offc, socketBuf->bufc->offp - socketBuf->bufc->offc, &wbuff->ovs[1], write_completion)) {
-					dbg("failed to write sock: err: 0x%lx", GetLastError());
-					return FALSE;
-				}
-				wbuff->in_writing = TRUE;
+				step = 1;
+				write_devbuf(hdevBuf, socketBuf);
 			}
 
 			if(socketBuf->bufp->requireResponse == FALSE) {
-				if(BUFREMAIN_C(socketBuf) == 0) {
-					dbg("108");
-					Queue* toFree = Dequeue(devno);
-					if(toFree != NULL) {
-						dbg("109");
-						free(toFree);
-					}
-					firstQueue = NULL;
-					continue;
+				if(socketBuf->bufc->offp == socketBuf->bufc->offc) {
+
 				}
 			}
 			else
@@ -365,7 +381,6 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 	}
 	SubmitThreadpoolWork(consumerWork);
 
-	int	res;
 	while(!interrupted) {
 		if(!read_write_dev(buffOfSocket, bufferOfhdev, TRUE))
 			break;

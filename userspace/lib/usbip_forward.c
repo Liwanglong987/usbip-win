@@ -511,56 +511,55 @@ int read_dev(devbuf_t* rbuff, BOOL swap_req_write)
 		rbuff->bufp->step_reading = 2;
 	}
 
+	if(rbuff->bufp->step_reading == 2) {
+		xfer_len = get_xfer_len(rbuff->is_req, hdr);
+		iso_len = get_iso_len(rbuff->is_req, hdr);
 
-	xfer_len = get_xfer_len(rbuff->is_req, hdr);
-	iso_len = get_iso_len(rbuff->is_req, hdr);
+		len_data = xfer_len + iso_len;
 
-	len_data = xfer_len + iso_len;
+		if(rbuff->bufp->offp < len_data + sizeof(struct usbip_header)) {
+			DWORD	nmore = (DWORD)(len_data + sizeof(struct usbip_header)) - rbuff->bufp->offp;
 
-	if(rbuff->bufp->offp < len_data + sizeof(struct usbip_header)) {
-		DWORD	nmore = (DWORD)(len_data + sizeof(struct usbip_header)) - rbuff->bufp->offp;
+			if(!read_devbuf(rbuff, nmore))
+				return -1;
+			return 0;
+		}
 
-		if(!read_devbuf(rbuff, nmore))
-			return -1;
-		return 0;
-	}
-
-	if(rbuff->swap_req && iso_len > 0)
-		swap_iso_descs_endian((char*)(hdr + 1) + xfer_len, hdr->u.ret_submit.number_of_packets);
-
-	DBG_USBIP_HEADER(hdr);
-
-	if(swap_req_write) {
-		if(iso_len > 0)
+		if(rbuff->swap_req && iso_len > 0)
 			swap_iso_descs_endian((char*)(hdr + 1) + xfer_len, hdr->u.ret_submit.number_of_packets);
-		swap_usbip_header_endian(hdr, FALSE);
+
+		DBG_USBIP_HEADER(hdr);
+
+		if(swap_req_write) {
+			if(iso_len > 0)
+				swap_iso_descs_endian((char*)(hdr + 1) + xfer_len, hdr->u.ret_submit.number_of_packets);
+			swap_usbip_header_endian(hdr, FALSE);
+		}
+		if(hdr->base.command == USBIP_CMD_SUBMIT && (hdr->u.cmd_submit.setup[0] & 0x80) != 0) {
+			rbuff->bufp->requireResponse = TRUE;
+		}
+		else
+		{
+			rbuff->bufp->requireResponse = FALSE;
+		}
+		rbuff->bufp->step_reading = 3;
 	}
-	if(hdr->base.command == USBIP_CMD_SUBMIT && (hdr->u.cmd_submit.setup[0] & 0x80) != 0) {
-		rbuff->bufp->requireResponse = TRUE;
-	}
-	else
-	{
-		rbuff->bufp->requireResponse = FALSE;
-	}
-	rbuff->bufp->step_reading = 3;
 	return 1;
 }
-BOOL
-read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff, BOOL readOnly)
+static BOOL
+read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff)
 {
 	int	res;
-	if(readOnly) {
-		if(!rbuff->in_reading) {
-			res = read_dev(rbuff, wbuff->swap_req);
-			if(res < 0)
-				return FALSE;
-		}
+
+	if(!rbuff->in_reading) {
+		res = read_dev(rbuff, wbuff->swap_req);
+		if(res < 0)
+			return FALSE;
 	}
 
-	if(!readOnly) {
-		if(!write_devbuf(wbuff, rbuff))
-			return FALSE;		
-	}
+	if(!write_devbuf(wbuff, rbuff))
+		return FALSE;
+
 	if(rbuff->bufc->offc == rbuff->bufc->offp && rbuff->bufc != rbuff->bufp) {
 		freeBuffer(rbuff->bufc);
 		rbuff->bufc = rbuff->bufp;

@@ -35,5 +35,5 @@ extern void freeBuffer(buffer* buffer);
 extern buffer* createNewBuffer();
 extern BOOL init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEventForConsumer, HANDLE hEventForProducer);
 extern int read_dev(devbuf_t* rbuff, BOOL swap_req_write);
-extern BOOL read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff, BOOL readOnly);
+extern BOOL write_devbuf(devbuf_t* wbuff, devbuf_t* rbuff);
 #endif
