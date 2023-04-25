@@ -338,62 +338,55 @@ setup_rw_overlapped(devbuf_t* buff)
 	}
 	return TRUE;
 }
-//error
-//static BOOL
-//init_devbuf(devbuf_t* buff, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEvent)
-//{
-//	buff->bufp = (char*)malloc(1024);
-//	if(buff->bufp == NULL)
-//		return FALSE;
-//	buff->bufc = buff->bufp;
-//	buff->is_req = is_req;
-//	buff->swap_req = swap_req;
-//	buff->in_reading = FALSE;
-//	buff->in_writing = FALSE;
-//	buff->requiredResponse = FALSE;
-//	buff->finishRead = FALSE;
-//	buff->invalid = FALSE;
-//	buff->step_reading = 0;
-//	buff->offhdr = 0;
-//	buff->offp = 0;
-//	buff->offc = 0;
-//	buff->bufmaxp = 1024;
-//	buff->bufmaxc = 0;
-//	buff->hdev = hdev;
-//	buff->hEventForConsumer = hEvent;
-//	if(!setup_rw_overlapped(buff)) {
-//		free(buff->bufp);
-//		return FALSE;
-//	}
-//	return TRUE;
-//}
+
+buffer* createNewBuffer() {
+	char* buf = (char*)malloc(1024);
+	if(buf == NULL)
+		return NULL;
+	buffer* bufp = (buffer*)malloc(sizeof(buffer));
+	if(bufp == NULL) {
+		free(buf);
+		return NULL;
+	}
+	bufp->buff = buf;
+	bufp->bufmax = 1024;
+	bufp->step_reading = 0;
+	bufp->requireResponse = FALSE;
+	bufp->offp = 0;
+	bufp->offc = 0;
+	return bufp;
+}
+
+void freeBuffer(buffer* buffer) {
+	free(buffer->buff);
+	free(buffer);
+}
 
 BOOL
 init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEventForConsumer, HANDLE hEventForProducer)
 {
+	buffer* newbuf = createNewBuffer();
+	if(newbuf == NULL) {
+		dbg("fail to malloc");
+		return FALSE;
+	}
 	devbuf_t* newBuff = (devbuf_t*)malloc(sizeof(devbuf_t));
 	if(newBuff == NULL) {
+		freeBuffer(newbuf);
 		dbg("fail to malloc");
 		return FALSE;
 	}
 	newBuff->bufp = (char*)malloc(1024);
 	if(newBuff->bufp == NULL)
 		return FALSE;
+	newBuff->bufp = newbuf;
 	newBuff->bufc = newBuff->bufp;
 	newBuff->desc = desc;
 	newBuff->is_req = is_req;
 	newBuff->swap_req = swap_req;
 	newBuff->in_reading = FALSE;
 	newBuff->in_writing = FALSE;
-	newBuff->requiredResponse = FALSE;
-	newBuff->finishRead = FALSE;
 	newBuff->invalid = FALSE;
-	newBuff->step_reading = 0;
-	newBuff->offhdr = 0;
-	newBuff->offp = 0;
-	newBuff->offc = 0;
-	newBuff->bufmaxp = 1024;
-	newBuff->bufmaxc = 0;
 	newBuff->hdev = hdev;
 	newBuff->hEventForConsumer = hEventForConsumer;
 	newBuff->hEventForProducer = hEventForProducer;
@@ -409,9 +402,10 @@ init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req,
 void
 cleanup_devbuf(devbuf_t* buff)
 {
-	free(buff->bufp);
 	if(buff->bufp != buff->bufc)
-		free(buff->bufc);
+		freeBuffer(buff->bufc);
+	freeBuffer(buff->bufp);
+	free(buff);
 }
 
 static VOID CALLBACK
@@ -421,7 +415,7 @@ read_completion(DWORD errcode, DWORD nread, LPOVERLAPPED lpOverlapped)
 
 	rbuff = (devbuf_t*)lpOverlapped->hEvent;
 	if(errcode == 0) {
-		rbuff->offp += nread;
+		rbuff->bufp->offp += nread;
 		if(nread == 0)
 			rbuff->invalid = TRUE;
 	}
@@ -430,48 +424,27 @@ read_completion(DWORD errcode, DWORD nread, LPOVERLAPPED lpOverlapped)
 	}
 	rbuff->in_reading = FALSE;
 	SetEvent(rbuff->hEventForConsumer);
-	SetEvent(rbuff->hEventForConsumer);
+	SetEvent(rbuff->hEventForProducer);
 }
 
 static BOOL
 read_devbuf(devbuf_t* rbuff, DWORD nreq)
 {
-	if(BUFREADMAX_P(rbuff) < nreq) {
-		char* bufnew;
-		rbuff->finishRead = FALSE;
-		if(rbuff->bufp != rbuff->bufc) {
-			/* reallocation is allowed only if producer and consumer use their own buffers */
-			DWORD	nmore = nreq - BUFREADMAX_P(rbuff);
-
-			bufnew = (char*)realloc(rbuff->bufp, rbuff->bufmaxp + nmore);
+	if((rbuff->bufp->bufmax - rbuff->bufp->offp) < nreq) {
+		DWORD newMax = nreq + rbuff->bufp->offp;
+		dbg("enter if,newMax=%d", newMax);
+		char* bufnew = (char*)realloc(rbuff->bufp->buff, newMax);
 		if(bufnew == NULL) {
-				dbg("failed to reallocate buffer: %s", rbuff->desc);
-				return FALSE;
-			}
-			rbuff->bufp = bufnew;
-			rbuff->bufmaxp += nmore;
-		}
-		else {
-			DWORD	nexist = BUFREAD_P(rbuff);
-
-			bufnew = (char*)malloc(nreq + nexist);
-			if(bufnew == NULL) {
-				dbg("failed to allocate buffer: %s", rbuff->desc);
+			dbg("failed to reallocate buffer: %s", rbuff->desc);
 			return FALSE;
 		}
-		if(nexist > 0) {
-			/* copy from already read usbip header */
-				memcpy(bufnew, BUFHDR_P(rbuff), nexist);
-		}
-		rbuff->bufp = bufnew;
-		rbuff->offp = nexist;
-		rbuff->bufmaxp = nreq + nexist;
-		}
+		rbuff->bufp->buff = bufnew;
+		rbuff->bufp->bufmax = newMax;
 	}
 
 	if(!rbuff->in_reading) {
-		dbg("newRead%d", nreq);
-		if(!ReadFileEx(rbuff->hdev, BUFCUR_P(rbuff), nreq, &rbuff->ovs[0], read_completion)) {
+		dbg("%sRead%dWithCount:%d", rbuff->desc, rbuff->bufp->step_reading, nreq);
+		if(!ReadFileEx(rbuff->hdev, rbuff->bufp->buff + rbuff->bufp->offp, nreq, &rbuff->ovs[0], read_completion)) {
 			DWORD error = GetLastError();
 			dbg("failed to read: err: 0x%lx", error);
 			if(error == ERROR_NETNAME_DELETED) {
@@ -503,27 +476,19 @@ write_completion(DWORD errcode, DWORD nwrite, LPOVERLAPPED lpOverlapped)
 		return;
 	}
 	rbuff = wbuff->peer;
-	rbuff->offc += nwrite;
+	rbuff->bufc->offc += nwrite;
 }
 
 BOOL
 write_devbuf(devbuf_t* wbuff, devbuf_t* rbuff)
 {
-	if(rbuff->bufp != rbuff->bufc && BUFREMAIN_C(rbuff) == 0) {
-		free(rbuff->bufc);
-		rbuff->bufc = rbuff->bufp;
-		rbuff->offc = 0;
-		rbuff->bufmaxc = rbuff->offhdr;
-	}
-	if(!wbuff->in_writing && BUFREMAIN_C(rbuff) > 0) {
-		dbg("towrite");
-		if(!WriteFileEx(wbuff->hdev, BUFCUR_C(rbuff), BUFREMAIN_C(rbuff), &wbuff->ovs[1], write_completion)) {
+	if(rbuff->bufc->step_reading == 3 && rbuff->bufc->offp > rbuff->bufc->offc && !wbuff->in_writing) {
+		if(!WriteFileEx(wbuff->hdev, rbuff->bufc->buff + rbuff->bufc->offc, rbuff->bufc->offp - rbuff->bufc->offc, &wbuff->ovs[1], write_completion)) {
 			dbg("failed to write sock: err: 0x%lx", GetLastError());
 			return FALSE;
 		}
 		wbuff->in_writing = TRUE;
 	}
-
 	return TRUE;
 }
 
@@ -532,26 +497,28 @@ int read_dev(devbuf_t* rbuff, BOOL swap_req_write)
 	struct usbip_header* hdr;
 	unsigned long	xfer_len, iso_len, len_data;
 
-	if(BUFREAD_P(rbuff) < sizeof(struct usbip_header)) {
-		rbuff->step_reading = 1;
-		if(!read_devbuf(rbuff, sizeof(struct usbip_header) - BUFREAD_P(rbuff)))
+	if(rbuff->bufp->offp < sizeof(struct usbip_header)) {
+		rbuff->bufp->step_reading = 1;
+		if(!read_devbuf(rbuff, sizeof(struct usbip_header) - rbuff->bufp->offp))
 			return -1;
 		return 0;
 	}
 
-	hdr = (struct usbip_header*)BUFHDR_P(rbuff);
-	if(rbuff->step_reading == 1) {
+	hdr = (struct usbip_header*)(rbuff->bufp->buff);
+	if(rbuff->bufp->step_reading == 1) {
 		if(rbuff->swap_req)
 			swap_usbip_header_endian(hdr, TRUE);
-		rbuff->step_reading = 2;
+		rbuff->bufp->step_reading = 2;
 	}
+
 
 	xfer_len = get_xfer_len(rbuff->is_req, hdr);
 	iso_len = get_iso_len(rbuff->is_req, hdr);
 
 	len_data = xfer_len + iso_len;
-	if(BUFREAD_P(rbuff) < len_data + sizeof(struct usbip_header)) {
-		DWORD	nmore = (DWORD)(len_data + sizeof(struct usbip_header)) - BUFREAD_P(rbuff);
+
+	if(rbuff->bufp->offp < len_data + sizeof(struct usbip_header)) {
+		DWORD	nmore = (DWORD)(len_data + sizeof(struct usbip_header)) - rbuff->bufp->offp;
 
 		if(!read_devbuf(rbuff, nmore))
 			return -1;
@@ -568,29 +535,40 @@ int read_dev(devbuf_t* rbuff, BOOL swap_req_write)
 			swap_iso_descs_endian((char*)(hdr + 1) + xfer_len, hdr->u.ret_submit.number_of_packets);
 		swap_usbip_header_endian(hdr, FALSE);
 	}
-
-	if(hdr->base.command == USBIP_CMD_SUBMIT && ((hdr->u.cmd_submit.setup[0] & 0x80) == 0)) {
-		rbuff->requiredResponse = TRUE;
+	if(hdr->base.command == USBIP_CMD_SUBMIT && (hdr->u.cmd_submit.setup[0] & 0x80) != 0) {
+		rbuff->bufp->requireResponse = TRUE;
 	}
-	rbuff->offhdr += (sizeof(struct usbip_header) + len_data);
-	if(rbuff->bufp == rbuff->bufc)
-		rbuff->bufmaxc = rbuff->offp;
-	rbuff->step_reading = 0;
-	rbuff->finishRead = TRUE;
+	else
+	{
+		rbuff->bufp->requireResponse = FALSE;
+	}
+	rbuff->bufp->step_reading = 3;
 	return 1;
 }
 BOOL
-read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff)
+read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff, BOOL readOnly)
 {
 	int	res;
-
-	if(!rbuff->in_reading) {
-		if((res = read_dev(rbuff, wbuff->swap_req)) < 0)
-			return FALSE;
-		if(res == 0)
-			return TRUE;
+	if(readOnly) {
+		if(!rbuff->in_reading) {
+			res = read_dev(rbuff, wbuff->swap_req);
+			if(res < 0)
+				return FALSE;
+		}
 	}
-	return write_devbuf(wbuff, rbuff);
+
+	if(!readOnly) {
+		if(!write_devbuf(wbuff, rbuff))
+			return FALSE;		
+	}
+	if(rbuff->bufc->offc == rbuff->bufc->offp && rbuff->bufc != rbuff->bufp) {
+		freeBuffer(rbuff->bufc);
+		rbuff->bufc = rbuff->bufp;
+	}
+	if(rbuff->bufp->step_reading == 3 && rbuff->bufc == rbuff->bufp) {
+		rbuff->bufp = createNewBuffer();
+	}
+	return TRUE;
 }
 
 static void
@@ -647,16 +625,16 @@ usbip_forward(HANDLE hdev_src, HANDLE hdev_dst, BOOL inbound)
 	signal(SIGINT, signalhandler);
 
 	while(!interrupted) {
-		if(!read_write_dev(&buff_src, &buff_dst))
+		if(!read_write_dev(&buff_src, &buff_dst, inbound))
 			break;
-		if(!read_write_dev(&buff_dst, &buff_src))
+		if(!read_write_dev(&buff_dst, &buff_src, !inbound))
 			break;
 
 		if(buff_src.invalid || buff_dst.invalid)
 			break;
 		if(buff_src.in_reading && buff_dst.in_reading &&
-			(buff_src.in_writing || BUFREMAIN_C(&buff_dst) == 0) &&
-			(buff_dst.in_writing || BUFREMAIN_C(&buff_src) == 0)) {
+			(buff_src.in_writing || buff_dst.bufc->step_reading != 3) &&
+			(buff_dst.in_writing || buff_src.bufc->step_reading != 3)) {
 			WaitForSingleObjectEx(hEvent, INFINITE, TRUE);
 			ResetEvent(hEvent);
 		}

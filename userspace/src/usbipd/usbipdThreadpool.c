@@ -241,12 +241,15 @@ void CALLBACK ThreadForConsumerRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PT
 			devbuf_t* hdevBuf = socketBuf->peer;
 			HANDLE hEvent = hdevBuf->hEventForConsumer;
 
-			if(!write_devbuf(hdevBuf, socketBuf)) {
-				dbg("103");
-				break;
+			if(socketBuf->bufc->step_reading == 3 && socketBuf->bufc->offp > socketBuf->bufc->offc && !hdevBuf->in_writing) {
+				if(!WriteFileEx(hdevBuf->hdev, socketBuf->bufc->buff + socketBuf->bufc->offc, socketBuf->bufc->offp - socketBuf->bufc->offc, &wbuff->ovs[1], write_completion)) {
+					dbg("failed to write sock: err: 0x%lx", GetLastError());
+					return FALSE;
+				}
+				wbuff->in_writing = TRUE;
 			}
 
-			if(socketBuf->requiredResponse == FALSE) {
+			if(socketBuf->bufp->requireResponse == FALSE) {
 				if(BUFREMAIN_C(socketBuf) == 0) {
 					dbg("108");
 					Queue* toFree = Dequeue(devno);
@@ -364,42 +367,16 @@ void CALLBACK ThreadForProduceRequest(PTP_CALLBACK_INSTANCE inst, PVOID ctx, PTP
 
 	int	res;
 	while(!interrupted) {
-
-		if(buffOfSocket->bufp->RWStatus == Space) {
-			res = read_dev(buffOfSocket, bufferOfhdev->swap_req);
-			if(res < 0)
-				break;
-		}
-
-		if(buffOfSocket->finishRead == TRUE) {
-			dbg("202");
-			if(Contains(devno, buffOfSocket) == FALSE) {
-				dbg("205");
-				Enqueue(devno, buffOfSocket);
-			}
-		}
-
-		if(bufferOfhdev->finishRead == TRUE) {
-			dbg("204");
-			if(buffOfSocket->bufp != buffOfSocket->bufc && BUFREMAIN_C(buffOfSocket) == 0) {
-				free(buffOfSocket->bufc);
-				buffOfSocket->bufc = buffOfSocket->bufp;
-				buffOfSocket->offc = 0;
-				buffOfSocket->bufmaxc = buffOfSocket->offhdr;
-			}
-			if(!bufferOfhdev->in_writing && BUFREMAIN_C(buffOfSocket) > 0) {
-				dbg("towrite");
-				if(!WriteFileEx(bufferOfhdev->hdev, BUFCUR_C(buffOfSocket), BUFREMAIN_C(buffOfSocket), &bufferOfhdev->ovs[1], write_completion)) {
-					dbg("failed to write sock: err: 0x%lx", GetLastError());
-					return FALSE;
-				}
-				bufferOfhdev->in_writing = TRUE;
-			}
-		}
-
-		if(buffOfSocket->invalid)
+		if(!read_write_dev(buffOfSocket, bufferOfhdev, TRUE))
 			break;
-		if(buffOfSocket->in_reading && (buffOfSocket->in_writing || BUFREMAIN_C(bufferOfhdev) == 0)) {
+		if(!read_write_dev(bufferOfhdev, buffOfSocket, FALSE))
+			break;
+
+		if(buffOfSocket->invalid || bufferOfhdev->invalid)
+			break;
+		if(buffOfSocket->in_reading && bufferOfhdev->in_reading &&
+			(buffOfSocket->in_writing || bufferOfhdev->bufc->step_reading != 3) &&
+			(bufferOfhdev->in_writing || buffOfSocket->bufc->step_reading != 3)) {
 			WaitForSingleObjectEx(hEventToProducer, INFINITE, TRUE);
 			ResetEvent(hEventToProducer);
 		}

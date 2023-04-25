@@ -3,29 +3,25 @@
 #ifndef _USBIP_FORWARD_H_
 #define _USBIP_FORWARD_H_
 
-typedef enum {
-	Reading = 0,
-	Writing=1,
-	Space=2
-} RWStatus;
-
 typedef struct {
 	char* buff;
-	int offp;
-	int bufMax;
-	int offc;
-	BOOL parseFinish;
-	RWStatus RWStatus;
-	BOOL requiredResponse;
-}bufferContainer;
+	DWORD	bufmax;
+	DWORD	offp, offc;
+	int	step_reading;
+	BOOL requireResponse;
+} buffer;
 
 typedef struct _devbuf {
 	const char* desc;
 	BOOL	is_req, swap_req;
 	BOOL	invalid;
+	/* asynchronous read is in progress */
+	BOOL	in_reading;
+	/* asynchronous write is in progress */
+	BOOL	in_writing;
+	/* step 1: reading header, 2: reading data */
 	HANDLE	hdev;
-	bufferContainer* bufp, * bufc;
-
+	buffer* bufp, * bufc;
 	struct _devbuf* peer;
 	OVERLAPPED	ovs[2];
 	/* completion event for read or write */
@@ -33,7 +29,11 @@ typedef struct _devbuf {
 	HANDLE hEventForProducer;
 } devbuf_t;
 
-extern void cleanup_devbuf(devbuf_t* buff);
 static volatile BOOL	interrupted;
-
+extern void cleanup_devbuf(devbuf_t* buff);
+extern void freeBuffer(buffer* buffer);
+extern buffer* createNewBuffer();
+extern BOOL init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEventForConsumer, HANDLE hEventForProducer);
+extern int read_dev(devbuf_t* rbuff, BOOL swap_req_write);
+extern BOOL read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff, BOOL readOnly);
 #endif

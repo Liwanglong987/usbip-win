@@ -59,5 +59,5 @@ extern void CALLBACK ThreadForConsumerRequest(PTP_CALLBACK_INSTANCE inst, PVOID 
 
 extern void signalhandlerPool(int signal);
 
-extern BOOL init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEventForConsumer, HANDLE hEventForProducer);
+
 #endif
