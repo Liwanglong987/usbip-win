@@ -508,7 +508,7 @@ read_dev(devbuf_t* rbuff, BOOL swap_req_write)
 	struct usbip_header* hdr;
 	unsigned long	xfer_len, iso_len, len_data;
 
-	if(rbuff->bufp->offp < sizeof(struct usbip_header)) {
+	if(rbuff->bufp->offp < sizeof(struct usbip_header) && rbuff->bufp->step_reading == 0) {
 		rbuff->bufp->step_reading = 1;
 		if(!read_devbuf(rbuff, sizeof(struct usbip_header) - rbuff->bufp->offp))
 			return -1;
