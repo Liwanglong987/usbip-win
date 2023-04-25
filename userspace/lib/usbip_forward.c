@@ -6,12 +6,6 @@
 #include "usbip_proto.h"
 #include "usbip_network.h"
 
-#define BUFREAD_P(devbuf)	((devbuf)->offp - (devbuf)->bufp->offhdr)
-#define BUFREADMAX_P(devbuf)	((devbuf)-bufmax-(devbuf)->bufp->offp)
-#define BUFREMAIN_C(devbuf)	((devbuf)->bufmaxc - (devbuf)->offc)
-#define BUFHDR_P(devbuf)	((devbuf)->offp + (devbuf)->bufp->offhdr)
-#define BUFCUR_P(devbuf)	((devbuf)->buff + (devbuf)->bufp->offp)
-#define BUFCUR_C(devbuf)	((devbuf) + (devbuf)->offc)
 
 typedef struct {
 	char* buff;
@@ -428,15 +422,16 @@ read_completion(DWORD errcode, DWORD nread, LPOVERLAPPED lpOverlapped)
 
 	rbuff = (devbuf_t*)lpOverlapped->hEvent;
 	if(errcode == 0) {
-		rbuff->bufp->offp += nread;
 		if(nread == 0)
 			rbuff->invalid = TRUE;
 	}
 	else if(errcode == ERROR_DEVICE_NOT_CONNECTED) {
 		rbuff->invalid = TRUE;
 	}
+	rbuff->bufp->offp += nread;
 	rbuff->in_reading = FALSE;
 	SetEvent(rbuff->hEvent);
+	dbg("%sreadfinish", rbuff->desc);
 }
 
 static BOOL
@@ -444,6 +439,7 @@ read_devbuf(devbuf_t* rbuff, DWORD nreq)
 {
 	if((rbuff->bufp->bufmax - rbuff->bufp->offp) < nreq) {
 		DWORD newMax = nreq + rbuff->bufp->offp;
+		dbg("enter if,newMax=%d", newMax);
 		char* bufnew = (char*)realloc(rbuff->bufp->buff, newMax);
 		if(bufnew == NULL) {
 			dbg("failed to reallocate buffer: %s", rbuff->desc);
@@ -454,6 +450,7 @@ read_devbuf(devbuf_t* rbuff, DWORD nreq)
 	}
 
 	if(!rbuff->in_reading) {
+		dbg("%sRead%dWithCount:%d", rbuff->desc, rbuff->bufp->step_reading, nreq);
 		if(!ReadFileEx(rbuff->hdev, rbuff->bufp->buff + rbuff->bufp->offp, nreq, &rbuff->ovs[0], read_completion)) {
 			DWORD error = GetLastError();
 			dbg("failed to read: err: 0x%lx", error);
@@ -486,12 +483,14 @@ write_completion(DWORD errcode, DWORD nwrite, LPOVERLAPPED lpOverlapped)
 	}
 	rbuff = wbuff->peer;
 	rbuff->bufc->offc += nwrite;
+	dbg("%swritefinish", wbuff->desc);
 }
 
 static BOOL
 write_devbuf(devbuf_t* wbuff, devbuf_t* rbuff)
 {
 	if(!wbuff->in_writing && rbuff->bufc->offp != rbuff->bufc->offc) {
+		dbg("%swriteStartwithCount:%dAndHas:%d", wbuff->desc, rbuff->bufc->offp - rbuff->bufc->offc, rbuff->bufc->offc);
 		if(!WriteFileEx(wbuff->hdev, rbuff->bufc->buff + rbuff->bufc->offc, rbuff->bufc->offp - rbuff->bufc->offc, &wbuff->ovs[1], write_completion)) {
 			dbg("failed to write sock: err: 0x%lx", GetLastError());
 			return FALSE;
@@ -508,7 +507,7 @@ read_dev(devbuf_t* rbuff, BOOL swap_req_write)
 	struct usbip_header* hdr;
 	unsigned long	xfer_len, iso_len, len_data;
 
-	if(rbuff->bufp->offp < sizeof(struct usbip_header) && rbuff->bufp->step_reading == 0) {
+	if(rbuff->bufp->offp < sizeof(struct usbip_header)) {
 		rbuff->bufp->step_reading = 1;
 		if(!read_devbuf(rbuff, sizeof(struct usbip_header) - rbuff->bufp->offp))
 			return -1;
@@ -521,47 +520,64 @@ read_dev(devbuf_t* rbuff, BOOL swap_req_write)
 			swap_usbip_header_endian(hdr, TRUE);
 		rbuff->bufp->step_reading = 2;
 	}
-	if(rbuff->bufp->step_reading == 2) {
 
-		xfer_len = get_xfer_len(rbuff->is_req, hdr);
-		iso_len = get_iso_len(rbuff->is_req, hdr);
 
-		len_data = xfer_len + iso_len;
-		if(rbuff->bufp->offp < len_data + sizeof(struct usbip_header)) {
-			DWORD	nmore = (DWORD)(len_data + sizeof(struct usbip_header)) - rbuff->bufp->offp;
+	xfer_len = get_xfer_len(rbuff->is_req, hdr);
+	iso_len = get_iso_len(rbuff->is_req, hdr);
 
-			if(!read_devbuf(rbuff, nmore))
-				return -1;
-			return 0;
-		}
+	len_data = xfer_len + iso_len;
 
-		if(rbuff->swap_req && iso_len > 0)
-			swap_iso_descs_endian((char*)(hdr + 1) + xfer_len, hdr->u.ret_submit.number_of_packets);
+	if(rbuff->bufp->offp < len_data + sizeof(struct usbip_header)) {
+		DWORD	nmore = (DWORD)(len_data + sizeof(struct usbip_header)) - rbuff->bufp->offp;
 
-		DBG_USBIP_HEADER(hdr);
-
-		if(swap_req_write) {
-			if(iso_len > 0)
-				swap_iso_descs_endian((char*)(hdr + 1) + xfer_len, hdr->u.ret_submit.number_of_packets);
-			swap_usbip_header_endian(hdr, FALSE);
-		}
-		if(hdr->base.command == USBIP_CMD_SUBMIT && hdr->u.cmd_submit.setup[0] & 0x80 != 0) {
-			rbuff->bufp->requireResponse = TRUE;
-		}
-		else
-		{
-			rbuff->bufp->requireResponse = FALSE;
-		}
-		rbuff->bufp->step_reading = 3;
+		if(!read_devbuf(rbuff, nmore))
+			return -1;
+		return 0;
 	}
+
+	if(rbuff->swap_req && iso_len > 0)
+		swap_iso_descs_endian((char*)(hdr + 1) + xfer_len, hdr->u.ret_submit.number_of_packets);
+
+	DBG_USBIP_HEADER(hdr);
+
+	if(swap_req_write) {
+		if(iso_len > 0)
+			swap_iso_descs_endian((char*)(hdr + 1) + xfer_len, hdr->u.ret_submit.number_of_packets);
+		swap_usbip_header_endian(hdr, FALSE);
+	}
+	if(hdr->base.command == USBIP_CMD_SUBMIT && (hdr->u.cmd_submit.setup[0] & 0x80) != 0) {
+		rbuff->bufp->requireResponse = TRUE;
+	}
+	else
+	{
+		rbuff->bufp->requireResponse = FALSE;
+	}
+	rbuff->bufp->step_reading = 3;
 	return 1;
 }
 
 static BOOL
-read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff)
+read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff, BOOL readOnly)
 {
 	int	res;
+	if(readOnly) {
+		if(!rbuff->in_reading) {
+			res = read_dev(rbuff, wbuff->swap_req);
+			if(res < 0)
+				return FALSE;
+		}
+	}
 
+	if(!readOnly) {
+
+		if(rbuff->bufc->step_reading == 3 && rbuff->bufc->offp > rbuff->bufc->offc && !wbuff->in_writing) {
+			if(!WriteFileEx(wbuff->hdev, rbuff->bufc->buff + rbuff->bufc->offc, rbuff->bufc->offp - rbuff->bufc->offc, &wbuff->ovs[1], write_completion)) {
+				dbg("failed to write sock: err: 0x%lx", GetLastError());
+				return FALSE;
+			}
+			wbuff->in_writing = TRUE;
+		}
+	}
 	if(rbuff->bufc->offc == rbuff->bufc->offp && rbuff->bufc != rbuff->bufp) {
 		freeBuffer(rbuff->bufc);
 		rbuff->bufc = rbuff->bufp;
@@ -569,26 +585,6 @@ read_write_dev(devbuf_t* rbuff, devbuf_t* wbuff)
 	if(rbuff->bufp->step_reading == 3 && rbuff->bufc == rbuff->bufp) {
 		rbuff->bufp = createNewBuffer();
 	}
-	if(!rbuff->in_reading) {
-		if((res = read_dev(rbuff, wbuff->swap_req)) < 0)
-			return FALSE;
-	}
-
-	if(!wbuff->in_writing) {
-		dbg("%s1%d", rbuff->desc, rbuff->bufc->step_reading);
-		if(rbuff->bufc->step_reading == 3) {
-			dbg("2");
-			if(rbuff->bufc->offp > rbuff->bufc->offc) {
-				dbg("3");
-				if(!WriteFileEx(wbuff->hdev, rbuff->bufc->buff + rbuff->bufc->offc, rbuff->bufc->offp - rbuff->bufc->offc, &wbuff->ovs[1], write_completion)) {
-					dbg("failed to write sock: err: 0x%lx", GetLastError());
-					return FALSE;
-				}
-				wbuff->in_writing = TRUE;
-			}
-		}
-	}
-
 	return TRUE;
 }
 
@@ -648,16 +644,16 @@ usbip_forward(HANDLE hdev_src, HANDLE hdev_dst, BOOL inbound)
 	signal(SIGINT, signalhandler);
 
 	while(!interrupted) {
-		if(!read_write_dev(&buff_src, &buff_dst))
+		if(!read_write_dev(&buff_src, &buff_dst, inbound))
 			break;
-		if(!read_write_dev(&buff_dst, &buff_src))
+		if(!read_write_dev(&buff_dst, &buff_src, !inbound))
 			break;
 
 		if(buff_src.invalid || buff_dst.invalid)
 			break;
 		if(buff_src.in_reading && buff_dst.in_reading &&
-			(buff_src.in_writing || buff_dst.bufp->offp == 0) &&
-			(buff_dst.in_writing || buff_src.bufp->offp == 0)) {
+			(buff_src.in_writing || buff_dst.bufc->step_reading != 3) &&
+			(buff_dst.in_writing || buff_src.bufc->step_reading != 3)) {
 			WaitForSingleObjectEx(hEvent, INFINITE, TRUE);
 			ResetEvent(hEvent);
 		}
