@@ -354,6 +354,7 @@ buffer* createNewBuffer() {
 	bufp->requireResponse = FALSE;
 	bufp->offp = 0;
 	bufp->offc = 0;
+	bufp->Next = NULL;
 	return bufp;
 }
 
@@ -363,7 +364,7 @@ void freeBuffer(buffer* buffer) {
 }
 
 BOOL
-init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEventForConsumer, HANDLE hEventForProducer)
+init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req, HANDLE hdev, HANDLE hEventForReader, HANDLE hEventForWriter)
 {
 	buffer* newbuf = createNewBuffer();
 	if(newbuf == NULL) {
@@ -376,9 +377,6 @@ init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req,
 		dbg("fail to malloc");
 		return FALSE;
 	}
-	newBuff->bufp = (char*)malloc(1024);
-	if(newBuff->bufp == NULL)
-		return FALSE;
 	newBuff->bufp = newbuf;
 	newBuff->bufc = newBuff->bufp;
 	newBuff->desc = desc;
@@ -388,8 +386,8 @@ init_devbufStatic(devbuf_t** buff, const char* desc, BOOL is_req, BOOL swap_req,
 	newBuff->in_writing = FALSE;
 	newBuff->invalid = FALSE;
 	newBuff->hdev = hdev;
-	newBuff->hEventForConsumer = hEventForConsumer;
-	newBuff->hEventForProducer = hEventForProducer;
+	newBuff->hEventForReader = hEventForReader;
+	newBuff->hEventForWriter = hEventForWriter;
 	if(!setup_rw_overlapped(newBuff)) {
 		free(newBuff->bufp);
 		free(newBuff);
@@ -422,9 +420,10 @@ read_completion(DWORD errcode, DWORD nread, LPOVERLAPPED lpOverlapped)
 	else if(errcode == ERROR_DEVICE_NOT_CONNECTED) {
 		rbuff->invalid = TRUE;
 	}
+	dbg("%sreadFinishStep%dWithNewCount:%d", rbuff->desc, rbuff->bufp->step_reading, nread);
 	rbuff->in_reading = FALSE;
-	SetEvent(rbuff->hEventForConsumer);
-	SetEvent(rbuff->hEventForProducer);
+	SetEvent(rbuff->hEventForReader);
+	SetEvent(rbuff->peer->hEventForWriter);
 }
 
 static BOOL
@@ -464,9 +463,9 @@ write_completion(DWORD errcode, DWORD nwrite, LPOVERLAPPED lpOverlapped)
 
 	wbuff = (devbuf_t*)lpOverlapped->hEvent;
 	wbuff->in_writing = FALSE;
+	SetEvent(wbuff->hEventForWriter);
 
-	SetEvent(wbuff->hEventForConsumer);
-	SetEvent(wbuff->hEventForProducer);
+	dbg("%swriteFinish", wbuff->desc);
 
 	if(errcode != 0)
 		return;
@@ -483,6 +482,7 @@ BOOL
 write_devbuf(devbuf_t* wbuff, devbuf_t* rbuff)
 {
 	if(rbuff->bufc->step_reading == 3 && rbuff->bufc->offp > rbuff->bufc->offc && !wbuff->in_writing) {
+		dbg("%swriteStartCount:%d", wbuff->desc, rbuff->bufc->offp - rbuff->bufc->offc);
 		if(!WriteFileEx(wbuff->hdev, rbuff->bufc->buff + rbuff->bufc->offc, rbuff->bufc->offp - rbuff->bufc->offc, &wbuff->ovs[1], write_completion)) {
 			dbg("failed to write sock: err: 0x%lx", GetLastError());
 			return FALSE;
@@ -496,7 +496,6 @@ int read_dev(devbuf_t* rbuff, BOOL swap_req_write)
 {
 	struct usbip_header* hdr;
 	unsigned long	xfer_len, iso_len, len_data;
-
 	if(rbuff->bufp->offp < sizeof(struct usbip_header)) {
 		rbuff->bufp->step_reading = 1;
 		if(!read_devbuf(rbuff, sizeof(struct usbip_header) - rbuff->bufp->offp))
@@ -606,17 +605,17 @@ usbip_forward(HANDLE hdev_src, HANDLE hdev_dst, BOOL inbound)
 		return;
 	}
 
-	if(!init_devbuf(&buff_src, desc_src, TRUE, swap_req_src, hdev_src, hEvent)) {
-		CloseHandle(hEvent);
-		dbg("failed to initialize %s buffer", desc_src);
-		return;
-	}
-	if(!init_devbuf(&buff_dst, desc_dst, FALSE, swap_req_dst, hdev_dst, hEvent)) {
-		CloseHandle(hEvent);
-		dbg("failed to initialize %s buffer", desc_dst);
-		cleanup_devbuf(&buff_src);
-		return;
-	}
+	//if(!init_devbuf(&buff_src, desc_src, TRUE, swap_req_src, hdev_src, hEvent)) {
+	//	CloseHandle(hEvent);
+	//	dbg("failed to initialize %s buffer", desc_src);
+	//	return;
+	//}
+	//if(!init_devbuf(&buff_dst, desc_dst, FALSE, swap_req_dst, hdev_dst, hEvent)) {
+	//	CloseHandle(hEvent);
+	//	dbg("failed to initialize %s buffer", desc_dst);
+	//	cleanup_devbuf(&buff_src);
+	//	return;
+	//}
 
 	buff_src.peer = &buff_dst;
 	buff_dst.peer = &buff_src;
@@ -624,9 +623,9 @@ usbip_forward(HANDLE hdev_src, HANDLE hdev_dst, BOOL inbound)
 	signal(SIGINT, signalhandler);
 
 	while(!interrupted) {
-		if(!read_write_dev(&buff_src, &buff_dst, inbound))
+		if(!read_write_dev(&buff_src, &buff_dst))
 			break;
-		if(!read_write_dev(&buff_dst, &buff_src, !inbound))
+		if(!read_write_dev(&buff_dst, &buff_src))
 			break;
 
 		if(buff_src.invalid || buff_dst.invalid)

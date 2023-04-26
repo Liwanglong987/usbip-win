@@ -155,6 +155,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="usbipConsumerThread.c" />
     <ClCompile Include="usbipdThreadpool.c" />
     <ClCompile Include="usbipd.c" />
     <ClCompile Include="usbipd_accept.c" />

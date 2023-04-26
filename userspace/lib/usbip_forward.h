@@ -3,12 +3,14 @@
 #ifndef _USBIP_FORWARD_H_
 #define _USBIP_FORWARD_H_
 
-typedef struct {
+typedef struct bufStruct {
 	char* buff;
 	DWORD	bufmax;
 	DWORD	offp, offc;
 	int	step_reading;
 	BOOL requireResponse;
+	struct bufStruct* Next;
+
 } buffer;
 
 typedef struct _devbuf {
@@ -25,11 +27,13 @@ typedef struct _devbuf {
 	struct _devbuf* peer;
 	OVERLAPPED	ovs[2];
 	/* completion event for read or write */
-	HANDLE hEventForConsumer;
-	HANDLE hEventForProducer;
+	HANDLE hEventForReader;
+	HANDLE hEventForWriter;
 } devbuf_t;
 
 static volatile BOOL	interrupted;
+extern void
+usbip_forward(HANDLE hdev_src, HANDLE hdev_dst, BOOL inbound);
 extern void cleanup_devbuf(devbuf_t* buff);
 extern void freeBuffer(buffer* buffer);
 extern buffer* createNewBuffer();
